@@ -21,7 +21,8 @@ public class Chess2DInputHandler : MonoBehaviour
 {
     // ── Inspector ─────────────────────────────────────────────────────────────
     [Header("Dependencies")]
-    public Chess2DRenderer renderer2D;
+    public Chess2DRenderer     renderer2D;
+    public PawnPromotionPicker promotionPicker;
 
     [Header("Highlight Colors")]
     public Color selectedColor  = new Color(0.20f, 0.85f, 0.20f, 0.60f);
@@ -32,6 +33,10 @@ public class Chess2DInputHandler : MonoBehaviour
     // ── Selection state ───────────────────────────────────────────────────────
     private Vector2Int       _selected   = new Vector2Int(-1, -1);
     private List<Vector2Int> _legalMoves = new List<Vector2Int>();
+
+    // Pending promotion — stored while picker is open
+    private Vector2Int _promotionFrom = new Vector2Int(-1, -1);
+    private Vector2Int _promotionTo   = new Vector2Int(-1, -1);
 
     // Set to true by default so input works before ModeManager is built (KAN-33).
     // ModeManager will explicitly call Activate()/Deactivate() to control this.
@@ -157,18 +162,27 @@ public class Chess2DInputHandler : MonoBehaviour
         }
 
         // ── Case 4: Attempt the move ──────────────────────────────────────────
-        // Pawn promotion defaults to Queen for now.
-        // TODO: show promotion picker UI (KAN-42) and pass chosen piece.
-        Piece promotionChoice = gsm.IsWhiteTurn ? Piece.WhiteQueen : Piece.BlackQueen;
-        bool moved = gsm.TryApplyMove(_selected, clicked, promotionChoice);
-
-        if (!moved)
+        if (IsPromotion(gsm, _selected, clicked))
         {
-            // Illegal destination — deselect and clear
+            // Store the pending move and show the picker.
+            // Input is implicitly blocked while the picker overlay is visible.
+            _promotionFrom = _selected;
+            _promotionTo   = clicked;
             ClearSelection();
             renderer2D.ClearAllHighlights();
+
+            bool isWhite = gsm.IsWhiteTurn;
+            promotionPicker.Show(isWhite, OnPromotionChosen);
         }
-        // If moved, HandleMoveMade fires via GameEvents and handles highlights.
+        else
+        {
+            bool moved = gsm.TryApplyMove(_selected, clicked);
+            if (!moved)
+            {
+                ClearSelection();
+                renderer2D.ClearAllHighlights();
+            }
+        }
     }
 
     // ── Selection helpers ─────────────────────────────────────────────────────
@@ -191,6 +205,32 @@ public class Chess2DInputHandler : MonoBehaviour
     {
         _selected = new Vector2Int(-1, -1);
         _legalMoves.Clear();
+    }
+
+    // ── Promotion handling ────────────────────────────────────────────────────
+    private void OnPromotionChosen(Piece chosen)
+    {
+        if (_promotionFrom.x == -1) return;
+
+        bool moved = GameStateManager.Instance.TryApplyMove(
+            _promotionFrom, _promotionTo, chosen);
+
+        _promotionFrom = new Vector2Int(-1, -1);
+        _promotionTo   = new Vector2Int(-1, -1);
+
+        if (!moved)
+        {
+            // Shouldn't happen since we validated the move before showing picker,
+            // but guard defensively.
+            renderer2D.ClearAllHighlights();
+        }
+    }
+
+    private static bool IsPromotion(GameStateManager gsm, Vector2Int from, Vector2Int to)
+    {
+        Piece p = gsm.Board[from.x, from.y];
+        return (p == Piece.WhitePawn && to.x == 7)
+            || (p == Piece.BlackPawn && to.x == 0);
     }
 
     // ── Check highlight ───────────────────────────────────────────────────────
