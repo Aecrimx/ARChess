@@ -19,7 +19,13 @@ MonoBehaviour:
   m_PlatformBuildProfile:
     rid: 3467153291780554753
   m_OverrideGlobalSceneList: 1
-  m_Scenes: []
+  m_Scenes:
+  - m_enabled: 1
+    m_path: Assets/Scenes/MainMenu.unity
+    m_guid: 90dea121b23851640928dceae637b057
+  - m_enabled: 1
+    m_path: Assets/Scenes/ChessScene.unity
+    m_guid: 99c9720ab356a0642a771bea13969a05
   m_HasScriptingDefines: 0
   m_ScriptingDefines: []
   m_PlayerSettingsYaml:
@@ -47,7 +53,7 @@ MonoBehaviour:
         m_BuildSubtarget: 0
         m_BuildSystem: 1
         m_ExportAsGoogleAndroidProject: 0
-        m_DebugSymbolLevel: 1
+        m_DebugSymbolLevel: 4
         m_DebugSymbolFormat: 5
         m_CurrentDeploymentTargetId: __builtin__target_default
         m_BuildType: 2
