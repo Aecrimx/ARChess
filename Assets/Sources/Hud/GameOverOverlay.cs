@@ -26,7 +26,6 @@ public class GameOverOverlay : MonoBehaviour
     public Color buttonColor       = new Color(0.20f, 0.60f, 0.30f, 1f);
     public Color buttonTextColor   = Color.white;
     public Color resultTextColor   = Color.white;
-    public string mainMenuSceneName = "MainMenu";  // rename if you rename your main menu scene
 
     // ── References (built at runtime) ─────────────────────────────────────────
     private GameObject _overlay;
@@ -78,9 +77,8 @@ public class GameOverOverlay : MonoBehaviour
 
     private void OnMainMenuClicked()
     {
-        // Loads scene at build index 0 (set up your main menu scene there)
-        // TODO: replace with your main menu scene name once built (KAN-41)
-        SceneManager.LoadScene(mainMenuSceneName);
+        GameStateManager.Instance.InitBoard();
+        GameModeManager.Instance.ReturnToMainMenu();
     }
 
     // ── UI construction ───────────────────────────────────────────────────────

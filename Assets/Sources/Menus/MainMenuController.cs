@@ -82,8 +82,8 @@ public class MainMenuController : MonoBehaviour
         // ── Subtitle ──────────────────────────────────────────────────────────
         MakeText("Subtitle", canvas.transform,
                  new Vector2(0.1f, 0.60f), new Vector2(0.9f, 0.68f),
-                 "Choose a mode to play", 36, FontStyle.Normal,
-                 new Color(0.7f, 0.7f, 0.7f, 1f), TextAnchor.MiddleCenter);
+                 "Choose a mode to play", 50, FontStyle.Normal,
+                 titleColor, TextAnchor.MiddleCenter);
 
         // ── Buttons ───────────────────────────────────────────────────────────
         var vsAI = MakeButton("BtnVsAI", canvas.transform,
@@ -104,8 +104,8 @@ public class MainMenuController : MonoBehaviour
         // ── Version label ─────────────────────────────────────────────────────
         MakeText("Version", canvas.transform,
                  new Vector2(0.0f, 0.0f), new Vector2(1.0f, 0.06f),
-                 $"v0.1", 24, FontStyle.Normal,
-                 new Color(0.4f, 0.4f, 0.4f, 1f), TextAnchor.MiddleCenter);
+                 $"v0.1", 30, FontStyle.Normal,
+                 titleColor, TextAnchor.MiddleCenter);
     }
 
     // ── Button callbacks ──────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ public class MainMenuController : MonoBehaviour
 
         MakeText($"{name}Label", go.transform,
                  Vector2.zero, Vector2.one,
-                 label, 48, FontStyle.Bold, buttonTextColor, TextAnchor.MiddleCenter);
+                 label, 75, FontStyle.Bold, buttonTextColor, TextAnchor.MiddleCenter);
 
         return btn;
     }
