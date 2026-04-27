@@ -121,14 +121,12 @@ public class Chess2DRenderer : MonoBehaviour
     {
         GameEvents.OnMoveMade   += HandleMoveMade;
         GameEvents.OnBoardReset += HandleBoardReset;
-        GameEvents.OnGameOver   += HandleGameOver;
     }
 
     private void UnsubscribeFromEvents()
     {
         GameEvents.OnMoveMade   -= HandleMoveMade;
         GameEvents.OnBoardReset -= HandleBoardReset;
-        GameEvents.OnGameOver   -= HandleGameOver;
     }
 
     private void HandleMoveMade(MoveRecord move) => RedrawPieces();
@@ -137,12 +135,6 @@ public class Chess2DRenderer : MonoBehaviour
     {
         ClearAllHighlights();
         RedrawPieces();
-    }
-
-    private void HandleGameOver(GameResult result)
-    {
-        Debug.Log($"[Chess2DRenderer] Game over: {result}");
-        // TODO: notify HUD (KAN-41)
     }
 
     // ── Piece drawing ─────────────────────────────────────────────────────────
