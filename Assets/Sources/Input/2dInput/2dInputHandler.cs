@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Chess2DInputHandler
@@ -37,6 +38,10 @@ public class Chess2DInputHandler : MonoBehaviour
     // Pending promotion — stored while picker is open
     private Vector2Int _promotionFrom = new Vector2Int(-1, -1);
     private Vector2Int _promotionTo   = new Vector2Int(-1, -1);
+
+    // Drag and Drop state
+    private Vector2Int _hoveredSquare = new Vector2Int(-1, -1);
+    private bool       _isDragging    = false;
 
     // Set to true by default so input works before ModeManager is built (KAN-33).
     // ModeManager will explicitly call Activate()/Deactivate() to control this.
@@ -97,7 +102,7 @@ public class Chess2DInputHandler : MonoBehaviour
     }
 
     // ── Button registration ───────────────────────────────────────────────────
-    // Attaches a Button component to each square Image so clicks are captured.
+    // Attaches custom event triggers to each square Image to support clicking and dragging.
     private void RegisterButtonCallbacks()
     {
         if (renderer2D == null)
@@ -112,19 +117,47 @@ public class Chess2DInputHandler : MonoBehaviour
             Image hitArea = renderer2D.GetHitArea(r, c);
             if (hitArea == null) continue;
 
-            // Reuse existing Button if one was already added, otherwise add one.
+            // Remove standard buttons if any
             var btn = hitArea.GetComponent<Button>();
-            if (btn == null) btn = hitArea.gameObject.AddComponent<Button>();
+            if (btn != null) Destroy(btn);
 
-            // Disable color tint transition — the hit area is intentionally transparent
-            // and ColorTint (the default) can interfere with invisible Images.
-            btn.transition = UnityEngine.UI.Selectable.Transition.None;
+            var trigger = hitArea.GetComponent<SquareInputTrigger>();
+            if (trigger == null) trigger = hitArea.gameObject.AddComponent<SquareInputTrigger>();
 
-            // Clear any existing listeners to avoid duplicates on re-registration.
-            btn.onClick.RemoveAllListeners();
+            trigger.row = r;
+            trigger.col = c;
+            trigger.handler = this;
+        }
+    }
 
-            int row = r, col = c; // capture for closure
-            btn.onClick.AddListener(() => OnSquareClicked(row, col));
+    // ── Custom Input Events ───────────────────────────────────────────────────
+    public void OnSquarePointerDown(int row, int col)
+    {
+        if (!_isActive) return;
+        _isDragging = true;
+        _hoveredSquare = new Vector2Int(row, col);
+
+        // Process this as a standard selection/click
+        OnSquareClicked(row, col);
+    }
+
+    public void OnSquarePointerEnter(int row, int col)
+    {
+        if (!_isActive) return;
+        _hoveredSquare = new Vector2Int(row, col);
+    }
+
+    public void OnSquarePointerUp(int row, int col)
+    {
+        if (!_isActive) return;
+        
+        _isDragging = false;
+        
+        // If we dropped on a square we didn't start on, try to move there.
+        // It uses the latest hovered square.
+        if (_hoveredSquare != _selected && _hoveredSquare.x != -1)
+        {
+            OnSquareClicked(_hoveredSquare.x, _hoveredSquare.y);
         }
     }
 
@@ -247,4 +280,19 @@ public class Chess2DInputHandler : MonoBehaviour
 
     // ── Utility ───────────────────────────────────────────────────────────────
     private static bool IsWhitePiece(Piece p) => (int)p > 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SquareInputTrigger
+//  Captures Drag and Drop pointer events on squares and forwards to Handler.
+// ─────────────────────────────────────────────────────────────────────────────
+public class SquareInputTrigger : MonoBehaviour, IPointerDownHandler, IPointerEnterHandler, IPointerUpHandler
+{
+    [HideInInspector] public int row;
+    [HideInInspector] public int col;
+    [HideInInspector] public Chess2DInputHandler handler;
+
+    public void OnPointerDown(PointerEventData eventData) => handler.OnSquarePointerDown(row, col);
+    public void OnPointerEnter(PointerEventData eventData) => handler.OnSquarePointerEnter(row, col);
+    public void OnPointerUp(PointerEventData eventData) => handler.OnSquarePointerUp(row, col);
 }
