@@ -37,6 +37,8 @@ public class GameSnapshot
     public bool         BlackCanCastleQueenside;
     public int          EnPassantCol;          // -1 = none
     public int          EnPassantRow;
+    public float        WhiteTimeRemaining;
+    public float        BlackTimeRemaining;
     public List<int>    CapturedByWhite      = new List<int>();
     public List<int>    CapturedByBlack      = new List<int>();
     public List<string> MoveHistory          = new List<string>();
@@ -68,7 +70,9 @@ public enum GameResult
     BlackWins,
     Stalemate,
     DrawByRepetition,
-    DrawByFiftyMoveRule
+    DrawByFiftyMoveRule,
+    WhiteWinsOnTime,
+    BlackWinsOnTime
 }
 
 // ─────────────────────────────────────────────
@@ -106,6 +110,32 @@ public class GameStateManager : MonoBehaviour
         InitBoard();
     }
 
+    void Update()
+    {
+        if (Result != GameResult.Ongoing) return;
+
+        if (IsWhiteTurn)
+        {
+            WhiteTimeRemaining -= Time.deltaTime;
+            if (WhiteTimeRemaining <= 0)
+            {
+                WhiteTimeRemaining = 0;
+                Result = GameResult.BlackWinsOnTime;
+                GameEvents.RaiseGameOver(Result);
+            }
+        }
+        else
+        {
+            BlackTimeRemaining -= Time.deltaTime;
+            if (BlackTimeRemaining <= 0)
+            {
+                BlackTimeRemaining = 0;
+                Result = GameResult.WhiteWinsOnTime;
+                GameEvents.RaiseGameOver(Result);
+            }
+        }
+    }
+
     // ── Board state ─────────────────────────────
     public Piece[,] Board { get; private set; } = new Piece[8, 8];
 
@@ -115,6 +145,10 @@ public class GameStateManager : MonoBehaviour
     public bool WhiteCanCastleQueenside { get; private set; } = true;
     public bool BlackCanCastleKingside  { get; private set; } = true;
     public bool BlackCanCastleQueenside { get; private set; } = true;
+
+    // ── Timers ──────────────────────────────────
+    public float WhiteTimeRemaining { get; private set; } = 600f;
+    public float BlackTimeRemaining { get; private set; } = 600f;
 
     // ── En passant ──────────────────────────────
     // Stores the square a pawn jumped over (target of an en-passant capture).
@@ -140,7 +174,7 @@ public class GameStateManager : MonoBehaviour
     // ════════════════════════════════════════════
 
     /// <summary>Reset to the standard starting position.</summary>
-    public void InitBoard()
+    public void InitBoard(float matchTimeSeconds = 600f)
     {
         Board = new Piece[8, 8];
 
@@ -166,6 +200,9 @@ public class GameStateManager : MonoBehaviour
         EnPassantTarget         = new Vector2Int(-1, -1);
         Result                  = GameResult.Ongoing;
         _halfMoveClock          = 0;
+
+        WhiteTimeRemaining = matchTimeSeconds;
+        BlackTimeRemaining = matchTimeSeconds;
 
         MoveHistory.Clear();
         CapturedByWhite.Clear();
@@ -235,6 +272,8 @@ public class GameStateManager : MonoBehaviour
             BlackCanCastleQueenside = BlackCanCastleQueenside,
             EnPassantCol            = EnPassantTarget.x,
             EnPassantRow            = EnPassantTarget.y,
+            WhiteTimeRemaining      = WhiteTimeRemaining,
+            BlackTimeRemaining      = BlackTimeRemaining,
             Result                  = Result
         };
 
@@ -264,6 +303,8 @@ public class GameStateManager : MonoBehaviour
         BlackCanCastleKingside  = snap.BlackCanCastleKingside;
         BlackCanCastleQueenside = snap.BlackCanCastleQueenside;
         EnPassantTarget         = new Vector2Int(snap.EnPassantCol, snap.EnPassantRow);
+        WhiteTimeRemaining      = snap.WhiteTimeRemaining;
+        BlackTimeRemaining      = snap.BlackTimeRemaining;
         Result                  = snap.Result;
 
         CapturedByWhite.Clear();
