@@ -68,15 +68,37 @@ public class GameOverOverlay : MonoBehaviour
         if (input != null) input.Activate();
     }
 
-    // ── Button callbacks ──────────────────────────────────────────────────────
+    // ── Button callbacks ────────────────────────────────────────────────────
     private void OnRematchClicked()
     {
-        GameStateManager.Instance.InitBoard();
-        // HandleBoardReset() fires via GameEvents.OnBoardReset
+        var gmm = GameModeManager.Instance;
+        if (gmm != null && gmm.IsLan)
+        {
+            if (gmm.IsLanHost)
+            {
+                // Host triggers the rematch for both players
+                LanNetworkManager.Instance?.RequestRematch();
+            }
+            else
+            {
+                // Client waits; the reset fires when RpcGameStarted arrives
+                if (_resultText    != null) _resultText.text    = "Waiting for host...";
+                if (_resultSubText != null) _resultSubText.text = "";
+            }
+        }
+        else
+        {
+            // Local mode: reset immediately
+            GameStateManager.Instance.InitBoard();
+            // HandleBoardReset() fires via GameEvents.OnBoardReset
+        }
     }
 
     private void OnMainMenuClicked()
     {
+        // Disconnect Mirror cleanly before loading the main menu
+        LanNetworkManager.Instance?.Disconnect();
+
         GameStateManager.Instance.InitBoard();
         GameModeManager.Instance.ReturnToMainMenu();
     }

@@ -47,11 +47,29 @@ public class Chess2DInputHandler : MonoBehaviour
     // ModeManager will explicitly call Activate()/Deactivate() to control this.
     private bool _isActive = true;
 
+    // ── LAN ───────────────────────────────────────────────────────────────────
+    // Set by ChessNetworkProxy.RpcGameStarted. True = local player controls white.
+    // In local modes this is always true (both players share the same device).
+    public bool LocalPlayerIsWhite { get; set; } = true;
+
+    // Cached reference to this client's ChessNetworkProxy (set on Start in LAN mode).
+    private ChessNetworkProxy _localProxy;
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
         RegisterButtonCallbacks();
         SubscribeToEvents();
+
+        // Cache the local player's proxy when in LAN mode
+        if (GameModeManager.Instance != null && GameModeManager.Instance.IsLan)
+        {
+            // The local player's proxy has isLocalPlayer == true
+            foreach (var proxy in FindObjectsByType<ChessNetworkProxy>(FindObjectsSortMode.None))
+            {
+                if (proxy.isLocalPlayer) { _localProxy = proxy; break; }
+            }
+        }
     }
 
     void OnDestroy() => UnsubscribeFromEvents();
@@ -169,6 +187,14 @@ public class Chess2DInputHandler : MonoBehaviour
         var gsm     = GameStateManager.Instance;
         var clicked = new Vector2Int(row, col);
 
+        // ── LAN: only act on the local player's turn ──────────────────────────
+        if (gsm.IsNetworked)
+        {
+            bool myTurn = (LocalPlayerIsWhite && gsm.IsWhiteTurn)
+                       || (!LocalPlayerIsWhite && !gsm.IsWhiteTurn);
+            if (!myTurn) return;
+        }
+
         // ── Case 1: Nothing selected — try to select a piece ─────────────────
         if (_selected.x == -1)
         {
@@ -197,8 +223,6 @@ public class Chess2DInputHandler : MonoBehaviour
         // ── Case 4: Attempt the move ──────────────────────────────────────────
         if (IsPromotion(gsm, _selected, clicked))
         {
-            // Store the pending move and show the picker.
-            // Input is implicitly blocked while the picker overlay is visible.
             _promotionFrom = _selected;
             _promotionTo   = clicked;
             ClearSelection();
@@ -209,12 +233,7 @@ public class Chess2DInputHandler : MonoBehaviour
         }
         else
         {
-            bool moved = gsm.TryApplyMove(_selected, clicked);
-            if (!moved)
-            {
-                ClearSelection();
-                renderer2D.ClearAllHighlights();
-            }
+            ExecuteMove(_selected, clicked, Piece.WhiteQueen, gsm);
         }
     }
 
@@ -245,18 +264,10 @@ public class Chess2DInputHandler : MonoBehaviour
     {
         if (_promotionFrom.x == -1) return;
 
-        bool moved = GameStateManager.Instance.TryApplyMove(
-            _promotionFrom, _promotionTo, chosen);
+        ExecuteMove(_promotionFrom, _promotionTo, chosen, GameStateManager.Instance);
 
         _promotionFrom = new Vector2Int(-1, -1);
         _promotionTo   = new Vector2Int(-1, -1);
-
-        if (!moved)
-        {
-            // Shouldn't happen since we validated the move before showing picker,
-            // but guard defensively.
-            renderer2D.ClearAllHighlights();
-        }
     }
 
     private static bool IsPromotion(GameStateManager gsm, Vector2Int from, Vector2Int to)
@@ -264,6 +275,30 @@ public class Chess2DInputHandler : MonoBehaviour
         Piece p = gsm.Board[from.x, from.y];
         return (p == Piece.WhitePawn && to.x == 7)
             || (p == Piece.BlackPawn && to.x == 0);
+    }
+
+    // ── Move execution (local or via network) ─────────────────────────────────
+    private void ExecuteMove(Vector2Int from, Vector2Int to, Piece promotion,
+                             GameStateManager gsm)
+    {
+        if (gsm.IsNetworked && _localProxy != null)
+        {
+            // LAN: send command to server — server validates and relays
+            _localProxy.CmdRequestMove(
+                from.x, from.y, to.x, to.y, (int)promotion);
+            ClearSelection();
+            renderer2D.ClearAllHighlights();
+        }
+        else
+        {
+            // Local: apply directly
+            bool moved = gsm.TryApplyMove(from, to, promotion);
+            if (!moved)
+            {
+                ClearSelection();
+                renderer2D.ClearAllHighlights();
+            }
+        }
     }
 
     // ── Check highlight ───────────────────────────────────────────────────────

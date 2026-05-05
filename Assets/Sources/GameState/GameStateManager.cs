@@ -146,9 +146,11 @@ public class GameStateManager : MonoBehaviour
     public bool BlackCanCastleKingside  { get; private set; } = true;
     public bool BlackCanCastleQueenside { get; private set; } = true;
 
-    // ── Timers ──────────────────────────────────
-    public float WhiteTimeRemaining { get; private set; } = 600f;
-    public float BlackTimeRemaining { get; private set; } = 600f;
+    // ── Timers ────────────────────────────────────────────
+    // Written by ChessClock each tick; read by GameplayHUDController.
+    // float.MaxValue = no limit (unlimited preset).
+    public float WhiteTimeRemaining { get; set; } = float.MaxValue;
+    public float BlackTimeRemaining { get; set; } = float.MaxValue;
 
     // ── En passant ──────────────────────────────
     // Stores the square a pawn jumped over (target of an en-passant capture).
@@ -160,10 +162,15 @@ public class GameStateManager : MonoBehaviour
     public List<Piece>      CapturedByWhite { get; private set; } = new List<Piece>();
     public List<Piece>      CapturedByBlack { get; private set; } = new List<Piece>();
 
-    // ── Game result ─────────────────────────────
+    // ── Game result ──────────────────────────────────────────────
     public GameResult Result { get; private set; } = GameResult.Ongoing;
 
-    // ── 50-move rule counter ─────────────────────
+    // ── Network flag ────────────────────────────────────────────
+    // Set to true by LanNetworkManager; used by Chess2DInputHandler
+    // to route moves through CmdRequestMove instead of TryApplyMove.
+    public bool IsNetworked { get; set; } = false;
+
+    // ── 50-move rule counter ─────────────────────────────────────
     private int _halfMoveClock = 0;
 
     // ── Repetition tracking ─────────────────────
@@ -248,6 +255,17 @@ public class GameStateManager : MonoBehaviour
         }
 
         return moves;
+    }
+
+    /// <summary>
+    /// Ends the game immediately with the given result (e.g. on clock timeout).
+    /// Safe to call from ChessClock or LanNetworkManager.
+    /// </summary>
+    public void ForceGameOver(GameResult result)
+    {
+        if (Result != GameResult.Ongoing) return;
+        Result = result;
+        GameEvents.RaiseGameOver(result);
     }
 
     /// <summary>Is the current side's king in check?</summary>

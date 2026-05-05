@@ -19,6 +19,18 @@ namespace Sources.Hud
         [Tooltip("True if the local player is White, False if Black.")]
         public bool isPlayerWhite = true;
 
+        /// <summary>
+        /// Called at game-start by ChessNetworkProxy.RpcGameStarted (LAN)
+        /// or by GameModeManager (local modes) to set the HUD perspective.
+        /// </summary>
+        public void SetLocalPlayerIsWhite(bool value)
+        {
+            isPlayerWhite = value;
+            // Immediately refresh the turn indicator with the new perspective
+            if (GameStateManager.Instance != null)
+                UpdateTurnIndicator(GameStateManager.Instance.IsWhiteTurn);
+        }
+
         [Header("Colors")]
         [SerializeField] private Color playerTurnColor = Color.green;
         [SerializeField] private Color opponentTurnColor = Color.red;
@@ -82,13 +94,14 @@ namespace Sources.Hud
 
             if (playerTimerText != null)
                 playerTimerText.text = FormatTime(playerTime);
-            
+
             if (opponentTimerText != null)
                 opponentTimerText.text = FormatTime(opponentTime);
         }
 
         private string FormatTime(float timeInSeconds)
         {
+            if (timeInSeconds >= float.MaxValue) return "\u221e";  // ∞ for unlimited
             int minutes = Mathf.FloorToInt(timeInSeconds / 60F);
             int seconds = Mathf.FloorToInt(timeInSeconds - minutes * 60);
             return string.Format("{0:00}:{1:00}", minutes, seconds);
