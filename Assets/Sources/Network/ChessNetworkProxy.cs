@@ -31,6 +31,13 @@ public class ChessNetworkProxy : NetworkBehaviour
         CmdSetName(GameModeManager.Instance != null
             ? GameModeManager.Instance.LocalPlayerName
             : "Player");
+            
+        // Defensive early set so client input handler knows we are networked
+        if (GameModeManager.Instance != null && GameModeManager.Instance.IsLan)
+        {
+            if (GameStateManager.Instance != null)
+                GameStateManager.Instance.IsNetworked = true;
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -96,28 +103,50 @@ public class ChessNetworkProxy : NetworkBehaviour
     }
 
     /// <summary>
-    /// Called at game start (and after rematch) to tell each client their colour
-    /// and set up the HUD perspective.
+    /// Sent by the server to ONE specific client (the owner of this proxy) to
+    /// tell them their colour and configure HUD + input for this session.
+    /// Using [TargetRpc] instead of [ClientRpc] ensures each player only
+    /// receives their own colour assignment, not both players' assignments.
     /// </summary>
-    [ClientRpc]
-    public void RpcGameStarted(bool isWhite)
+    [TargetRpc]
+    public void TargetGameStarted(NetworkConnectionToClient conn, bool isWhite, float timerSeconds)
     {
-        IsWhite = isWhite;   // redundant with SyncVar but guarantees timing
+        IsWhite = isWhite;
 
-        // Set HUD perspective
+        // ── Mark this client as networked ─────────────────────────────────────
+        // The server sets this in OnServerSceneChanged, but the joining client
+        // needs it set here so Chess2DInputHandler routes moves through the network.
+        if (GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.IsNetworked = true;
+            if (!NetworkServer.active)
+            {
+                GameStateManager.Instance.InitBoard(timerSeconds);
+            }
+        }
+
+        // ── Wire HUD perspective ──────────────────────────────────────────────
         var hud = FindAnyObjectByType<Sources.Hud.GameplayHUDController>();
         if (hud != null)
             hud.SetLocalPlayerIsWhite(isWhite);
+        else
+            Debug.LogWarning("[ChessNetworkProxy] GameplayHUDController not found.");
 
-        // Set input handler so only the correct colour's taps are forwarded
+        // ── Wire input handler ────────────────────────────────────────────────
+        // SetLocalProxy caches 'this' as the command sender so ExecuteMove can
+        // call CmdRequestMove. Must happen here — proxy objects don't exist yet
+        // when Chess2DInputHandler.Start() runs.
         var input = FindAnyObjectByType<Chess2DInputHandler>();
         if (input != null)
         {
             input.LocalPlayerIsWhite = isWhite;
+            input.SetLocalProxy(this);
             input.Activate();
         }
+        else
+            Debug.LogWarning("[ChessNetworkProxy] Chess2DInputHandler not found.");
 
-        // Start clock on client (non-authoritative — just sets the display)
+        // ── Start clock (client, non-authoritative) ───────────────────────────
         if (!NetworkServer.active && ChessClock.Instance != null)
             ChessClock.Instance.StartClock(
                 GameStateManager.Instance != null
@@ -125,7 +154,9 @@ public class ChessNetworkProxy : NetworkBehaviour
                     : float.MaxValue,
                 isAuthority: false);
 
-        Debug.Log($"[ChessNetworkProxy] Game started. LocalPlayerIsWhite={isWhite}");
+        Debug.Log($"[ChessNetworkProxy] TargetGameStarted → isWhite={isWhite}  " +
+                  $"IsNetworked={GameStateManager.Instance?.IsNetworked}  " +
+                  $"proxy={name}");
     }
 
     /// <summary>

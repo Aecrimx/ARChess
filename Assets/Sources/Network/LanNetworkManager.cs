@@ -43,6 +43,9 @@ public class LanNetworkManager : NetworkManager
     private float _timerSyncInterval = 2f;
     private float _timerSyncTimer    = 0f;
 
+    // ── Client Ready State ────────────────────────────────────────────────────
+    private int _readyCount = 0;
+
     // ════════════════════════════════════════════════════════════════════════════
     //  SERVER CALLBACKS
     // ════════════════════════════════════════════════════════════════════════════
@@ -78,6 +81,7 @@ public class LanNetworkManager : NetworkManager
             }
 
             // Load the game scene for all clients (manual — Mirror's onlineScene is left blank)
+            _readyCount = 0;
             ServerChangeScene(gameSceneName);
         }
     }
@@ -91,10 +95,7 @@ public class LanNetworkManager : NetworkManager
         if (GameStateManager.Instance != null &&
             GameStateManager.Instance.Result == GameResult.Ongoing)
         {
-            GameStateManager.Instance.ForceGameOver(
-                conn == (_connOrder.Count > 0 ? _connOrder[0] : null)
-                    ? GameResult.BlackWins
-                    : GameResult.WhiteWins);
+            GameStateManager.Instance.ForceGameOver(GameResult.OpponentDisconnected);
         }
     }
 
@@ -104,23 +105,43 @@ public class LanNetworkManager : NetworkManager
 
         if (sceneName != gameSceneName) return;
 
-        // Mark game as networked and initialise the board
+        // Ensure IsNetworked is true on the host's GameStateManager early
         if (GameStateManager.Instance != null)
         {
             GameStateManager.Instance.IsNetworked = true;
-            GameStateManager.Instance.InitBoard(TimerSeconds);
         }
+    }
 
-        // Start the clock (server is authoritative)
-        if (ChessClock.Instance != null)
-            ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
+    public override void OnServerReady(NetworkConnectionToClient conn)
+    {
+        base.OnServerReady(conn);
 
-        // Notify each proxy of its colour — proxies have already been spawned
-        // (they survive the scene change in DontDestroyOnLoad)
-        for (int i = 0; i < _connOrder.Count; i++)
+        // We only care about ready messages when in the game scene
+        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name != gameSceneName) return;
+
+        _readyCount++;
+        Debug.Log($"[LanNetworkManager] Client ready ({_readyCount}/2).");
+
+        if (_readyCount == 2)
         {
-            var proxy = _connOrder[i].identity?.GetComponent<ChessNetworkProxy>();
-            proxy?.RpcGameStarted(isWhite: (i == 0) == _hostIsWhite);
+            Debug.Log("[LanNetworkManager] Both clients ready — starting game");
+            
+            if (GameStateManager.Instance != null)
+            {
+                GameStateManager.Instance.IsNetworked = true;
+                GameStateManager.Instance.InitBoard(TimerSeconds);
+            }
+
+            if (ChessClock.Instance != null)
+                ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
+
+            for (int i = 0; i < _connOrder.Count; i++)
+            {
+                var identity = _connOrder[i].identity;
+                if (identity == null) continue;
+                var proxy = identity.GetComponent<ChessNetworkProxy>();
+                proxy?.TargetGameStarted(_connOrder[i], isWhite: (i == 0) == _hostIsWhite, TimerSeconds);
+            }
         }
     }
 
@@ -138,6 +159,16 @@ public class LanNetworkManager : NetworkManager
     {
         base.OnClientDisconnect();
         Debug.Log("[LanNetworkManager] Disconnected from server.");
+        
+        // If we are still in the game scene, the host dropped
+        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == gameSceneName)
+        {
+            if (GameStateManager.Instance != null &&
+                GameStateManager.Instance.Result == GameResult.Ongoing)
+            {
+                GameStateManager.Instance.ForceGameOver(GameResult.OpponentDisconnected);
+            }
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -155,11 +186,13 @@ public class LanNetworkManager : NetworkManager
         if (ChessClock.Instance != null)
             ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
 
-        // Notify proxies of new colours
+        // Notify proxies of new colours via TargetRpc (one colour per player)
         for (int i = 0; i < _connOrder.Count; i++)
         {
-            var proxy = _connOrder[i].identity?.GetComponent<ChessNetworkProxy>();
-            proxy?.RpcGameStarted(isWhite: (i == 0) == _hostIsWhite);
+            var identity = _connOrder[i].identity;
+            if (identity == null) continue;
+            var proxy = identity.GetComponent<ChessNetworkProxy>();
+            proxy?.TargetGameStarted(_connOrder[i], isWhite: (i == 0) == _hostIsWhite, TimerSeconds);
         }
     }
 
@@ -180,7 +213,9 @@ public class LanNetworkManager : NetworkManager
         // Broadcast current times to all proxies
         foreach (var conn in _connOrder)
         {
-            var proxy = conn.identity?.GetComponent<ChessNetworkProxy>();
+            var identity = conn.identity;
+            if (identity == null) continue;   // guard: destroyed during scene transitions
+            var proxy = identity.GetComponent<ChessNetworkProxy>();
             proxy?.RpcTimerSync(
                 GameStateManager.Instance.WhiteTimeRemaining,
                 GameStateManager.Instance.BlackTimeRemaining);

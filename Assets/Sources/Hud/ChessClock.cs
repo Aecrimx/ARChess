@@ -44,7 +44,7 @@ public class ChessClock : MonoBehaviour
 
     void Update()
     {
-        if (!_running || !_isAuthority) return;
+        if (!_running) return;
 
         var gsm = GameStateManager.Instance;
         if (gsm == null || gsm.Result != GameResult.Ongoing) return;
@@ -54,7 +54,7 @@ public class ChessClock : MonoBehaviour
         {
             if (gsm.WhiteTimeRemaining == float.MaxValue) return; // unlimited
             gsm.WhiteTimeRemaining -= Time.deltaTime;
-            if (gsm.WhiteTimeRemaining <= 0f)
+            if (_isAuthority && gsm.WhiteTimeRemaining <= 0f)
             {
                 gsm.WhiteTimeRemaining = 0f;
                 gsm.ForceGameOver(GameResult.BlackWins);
@@ -64,7 +64,7 @@ public class ChessClock : MonoBehaviour
         {
             if (gsm.BlackTimeRemaining == float.MaxValue) return; // unlimited
             gsm.BlackTimeRemaining -= Time.deltaTime;
-            if (gsm.BlackTimeRemaining <= 0f)
+            if (_isAuthority && gsm.BlackTimeRemaining <= 0f)
             {
                 gsm.BlackTimeRemaining = 0f;
                 gsm.ForceGameOver(GameResult.WhiteWins);

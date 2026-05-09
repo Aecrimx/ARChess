@@ -31,6 +31,7 @@ public class GameOverOverlay : MonoBehaviour
     private GameObject _overlay;
     private Text       _resultText;
     private Text       _resultSubText;
+    private GameObject _rematchButtonGO;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
@@ -52,6 +53,12 @@ public class GameOverOverlay : MonoBehaviour
         var messages = ResultMessage(result);
         _resultText.text = messages[0];
         _resultSubText.text = messages[1];
+        
+        if (_rematchButtonGO != null)
+        {
+            _rematchButtonGO.SetActive(result != GameResult.OpponentDisconnected);
+        }
+
         _overlay.SetActive(true);
 
         // Block input handler while overlay is showing
@@ -156,6 +163,7 @@ public class GameOverOverlay : MonoBehaviour
                                  new Vector2(0.05f, 0.2f), new Vector2(0.475f, 0.35f),
                                  "Rematch", buttonColor, buttonTextColor, GetFont(), buttonSprite);
         rematch.onClick.AddListener(OnRematchClicked);
+        _rematchButtonGO = rematch.gameObject;
 
         // Main menu button
         var menu = MakeButton("MainMenu", panel.transform,
@@ -174,6 +182,9 @@ public class GameOverOverlay : MonoBehaviour
         GameResult.Stalemate          => new string[] { "Stalemate!", "Draw" },
         GameResult.DrawByRepetition   => new string[] { "Draw!", "Threefold repetition" },
         GameResult.DrawByFiftyMoveRule => new string[] { "Draw!", "50-move rule" },
+        GameResult.WhiteWinsOnTime    => new string[] { "Time's Up!", "White wins on time" },
+        GameResult.BlackWinsOnTime    => new string[] { "Time's Up!", "Black wins on time" },
+        GameResult.OpponentDisconnected => new string[] { "Disconnected", "Opponent left the match" },
         _                             => new string[] { "Game Over", "Unexpected result" }
     };
 

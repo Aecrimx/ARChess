@@ -72,7 +72,8 @@ public enum GameResult
     DrawByRepetition,
     DrawByFiftyMoveRule,
     WhiteWinsOnTime,
-    BlackWinsOnTime
+    BlackWinsOnTime,
+    OpponentDisconnected
 }
 
 // ─────────────────────────────────────────────
@@ -107,34 +108,15 @@ public class GameStateManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
-        InitBoard();
-    }
-
-    void Update()
-    {
-        if (Result != GameResult.Ongoing) return;
-
-        if (IsWhiteTurn)
+        
+        // Only init board immediately if offline. Networked games are driven by LanNetworkManager.
+        if (Mirror.NetworkManager.singleton == null || !Mirror.NetworkManager.singleton.isNetworkActive)
         {
-            WhiteTimeRemaining -= Time.deltaTime;
-            if (WhiteTimeRemaining <= 0)
-            {
-                WhiteTimeRemaining = 0;
-                Result = GameResult.BlackWinsOnTime;
-                GameEvents.RaiseGameOver(Result);
-            }
-        }
-        else
-        {
-            BlackTimeRemaining -= Time.deltaTime;
-            if (BlackTimeRemaining <= 0)
-            {
-                BlackTimeRemaining = 0;
-                Result = GameResult.WhiteWinsOnTime;
-                GameEvents.RaiseGameOver(Result);
-            }
+            InitBoard();
         }
     }
+
+
 
     // ── Board state ─────────────────────────────
     public Piece[,] Board { get; private set; } = new Piece[8, 8];

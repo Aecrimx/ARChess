@@ -52,7 +52,9 @@ public class Chess2DInputHandler : MonoBehaviour
     // In local modes this is always true (both players share the same device).
     public bool LocalPlayerIsWhite { get; set; } = true;
 
-    // Cached reference to this client's ChessNetworkProxy (set on Start in LAN mode).
+    // Cached reference to this client's ChessNetworkProxy.
+    // Set by ChessNetworkProxy.TargetGameStarted (not Start) because Mirror
+    // hasn't spawned network objects yet when Start() runs.
     private ChessNetworkProxy _localProxy;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -60,17 +62,13 @@ public class Chess2DInputHandler : MonoBehaviour
     {
         RegisterButtonCallbacks();
         SubscribeToEvents();
-
-        // Cache the local player's proxy when in LAN mode
-        if (GameModeManager.Instance != null && GameModeManager.Instance.IsLan)
-        {
-            // The local player's proxy has isLocalPlayer == true
-            foreach (var proxy in FindObjectsByType<ChessNetworkProxy>(FindObjectsSortMode.None))
-            {
-                if (proxy.isLocalPlayer) { _localProxy = proxy; break; }
-            }
-        }
     }
+
+    /// <summary>
+    /// Called by ChessNetworkProxy.TargetGameStarted once Mirror has fully
+    /// spawned all network objects in the scene.
+    /// </summary>
+    public void SetLocalProxy(ChessNetworkProxy proxy) => _localProxy = proxy;
 
     void OnDestroy() => UnsubscribeFromEvents();
 

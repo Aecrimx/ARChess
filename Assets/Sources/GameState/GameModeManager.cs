@@ -40,6 +40,15 @@ public class GameModeManager : MonoBehaviour
         ReadSettings();
     }
 
+    void Start()
+    {
+        if (!IsLan && GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.InitBoard(TimerSeconds);
+            ChessClock.Instance?.StartClock(TimerSeconds, true);
+        }
+    }
+
     private void ReadSettings()
     {
         // Game mode
