@@ -59,6 +59,11 @@ namespace Sources.Hud
             RedrawContainer(blackCaptureContainer, GameStateManager.Instance.CapturedByBlack);
         }
 
+        public void RefreshFromGameState()
+        {
+            RedrawAll();
+        }
+
         private void RedrawContainer(RectTransform container, List<Piece> capturedPieces)
         {
             if (container == null) return;

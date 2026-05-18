@@ -116,6 +116,12 @@ public class GameStateManager : MonoBehaviour
         }
     }
 
+    void OnDestroy()
+    {
+        if (Instance == this)
+            Instance = null;
+    }
+
 
 
     // ── Board state ─────────────────────────────

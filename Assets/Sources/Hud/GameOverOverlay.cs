@@ -103,11 +103,7 @@ public class GameOverOverlay : MonoBehaviour
 
     private void OnMainMenuClicked()
     {
-        // Disconnect Mirror cleanly before loading the main menu
-        LanNetworkManager.Instance?.Disconnect();
-
-        GameStateManager.Instance.InitBoard();
-        GameModeManager.Instance.ReturnToMainMenu();
+        GameModeManager.Instance?.ExitCurrentGameToMainMenu();
     }
 
     // ── UI construction ───────────────────────────────────────────────────────

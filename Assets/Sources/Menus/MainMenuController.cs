@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using Mirror;
 using UnityEngine;
 using UnityEngine.UI;
@@ -51,11 +52,15 @@ public class MainMenuController : MonoBehaviour
 
     // ── Host lobby state ──────────────────────────────────────────────────────
     private Text   _hostStatusLabel;
+    private Text   _selectedTimerLabel;
     private string _selectedTimerPreset = "unlimited";   // PlayerPrefs value
+    private readonly List<Button> _timerButtons = new List<Button>();
 
     // ── Join lobby state ──────────────────────────────────────────────────────
     private Transform      _serverListContent;
     private readonly List<DiscoveryResponse> _foundServers = new List<DiscoveryResponse>();
+    private Coroutine _discoveryBurstRoutine;
+    private Coroutine _subnetSweepRoutine;
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private InputField _nameField;
@@ -63,6 +68,7 @@ public class MainMenuController : MonoBehaviour
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
+        _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", "unlimited");
         SetBackground();
         BuildUI();
         ShowPanel(_mainPanel);
@@ -73,6 +79,7 @@ public class MainMenuController : MonoBehaviour
     void OnDestroy()
     {
         LanDiscovery.OnServerDiscovered -= OnServerFound;
+        StopDiscoveryRoutines();
     }
 
     // ── Background ────────────────────────────────────────────────────────────
@@ -104,7 +111,7 @@ public class MainMenuController : MonoBehaviour
         // Version label (always visible)
         MakeText("Version", root,
                  new Vector2(0f, 0f), new Vector2(1f, 0.06f),
-                 "v0.2", 30, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+                 "v0.3", 30, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
     }
 
     // ── Main panel ────────────────────────────────────────────────────────────
@@ -205,6 +212,10 @@ public class MainMenuController : MonoBehaviour
                  new Vector2(0.05f, 0.72f), new Vector2(0.95f, 0.82f),
                  "Time Control:", 50, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
 
+        _selectedTimerLabel = MakeText("SelectedTimerLabel", t,
+                 new Vector2(0.05f, 0.52f), new Vector2(0.95f, 0.60f),
+                 "", 40, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+
         // Timer preset buttons
         string[] labels  = { "Unlimited", "1 min", "3 min", "5 min", "10 min", "30 min" };
         string[] presets = { "unlimited", "1", "3", "5", "10", "30" };
@@ -212,15 +223,20 @@ public class MainMenuController : MonoBehaviour
         for (int i = 0; i < labels.Length; i++)
         {
             int idx = i;
-            MakeButton($"BtnTimer{presets[i]}", t,
+            var timerButton = MakeButton($"BtnTimer{presets[i]}", t,
                        new Vector2(i * btnW + 0.01f, 0.60f),
                        new Vector2((i + 1) * btnW - 0.01f, 0.71f),
-                       labels[i]).onClick.AddListener(() =>
+                       labels[i]);
+            _timerButtons.Add(timerButton);
+            timerButton.onClick.AddListener(() =>
             {
                 _selectedTimerPreset = presets[idx];
+                RefreshTimerSelectionUi();
                 Debug.Log($"[MainMenu] Timer preset: {_selectedTimerPreset}");
             });
         }
+
+        RefreshTimerSelectionUi();
 
         MakeButton("BtnStartHost", t,
                    new Vector2(0.1f, 0.44f), new Vector2(0.9f, 0.57f),
@@ -235,6 +251,7 @@ public class MainMenuController : MonoBehaviour
                    "Back").onClick.AddListener(() =>
         {
             LanNetworkManager.Instance?.StopHost();
+            ResetHostLobbyState();
             ShowPanel(_lanPanel);
         });
     }
@@ -294,6 +311,7 @@ public class MainMenuController : MonoBehaviour
                    new Vector2(0.1f, 0.15f), new Vector2(0.9f, 0.27f),
                    "Back").onClick.AddListener(() =>
         {
+            StopDiscoveryRoutines();
             LanNetworkManager.Instance?.GetComponent<LanDiscovery>()?.StopDiscovery();
             ShowPanel(_lanPanel);
         });
@@ -427,6 +445,15 @@ public class MainMenuController : MonoBehaviour
         }
         Debug.Log("[MainMenu] Starting LAN discovery (UDP broadcast)...");
         discovery.StartDiscovery();
+        discovery.BroadcastDiscoveryRequest();
+
+        if (_discoveryBurstRoutine != null)
+            StopCoroutine(_discoveryBurstRoutine);
+        _discoveryBurstRoutine = StartCoroutine(BurstDiscoveryRequests(discovery));
+
+        if (_subnetSweepRoutine != null)
+            StopCoroutine(_subnetSweepRoutine);
+        _subnetSweepRoutine = StartCoroutine(SweepLocalSubnet(discovery));
     }
 
     private void OnServerFound(DiscoveryResponse response)
@@ -491,6 +518,7 @@ public class MainMenuController : MonoBehaviour
         var mgr = LanNetworkManager.Instance;
         if (mgr == null) return;
 
+        StopDiscoveryRoutines();
         mgr.GetComponent<LanDiscovery>()?.StopDiscovery();
         mgr.StartClient(uri);
     }
@@ -508,7 +536,94 @@ public class MainMenuController : MonoBehaviour
         _joinLobbyPanel?.SetActive(false);
         _settingsPanel?.SetActive(false);
 
+        if (panel == _hostLobbyPanel)
+        {
+            _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", _selectedTimerPreset);
+            RefreshTimerSelectionUi();
+            ResetHostLobbyState();
+        }
+
         panel?.SetActive(true);
+    }
+
+    private void ResetHostLobbyState()
+    {
+        if (_hostStatusLabel != null)
+            _hostStatusLabel.text = "";
+    }
+
+    private void RefreshTimerSelectionUi()
+    {
+        if (_selectedTimerLabel != null)
+            _selectedTimerLabel.text = $"Selected: {FormatTimerPreset(_selectedTimerPreset)}";
+
+        string[] presets = { "unlimited", "1", "3", "5", "10", "30" };
+        for (int i = 0; i < _timerButtons.Count && i < presets.Length; i++)
+        {
+            var button = _timerButtons[i];
+            if (button == null) continue;
+
+            var image = button.GetComponent<Image>();
+            if (image == null) continue;
+
+            image.color = presets[i] == _selectedTimerPreset
+                ? buttonHoverColor
+                : buttonColor;
+        }
+    }
+
+    private static string FormatTimerPreset(string preset) => preset switch
+    {
+        "1" => "1 min",
+        "3" => "3 min",
+        "5" => "5 min",
+        "10" => "10 min",
+        "30" => "30 min",
+        _ => "Unlimited"
+    };
+
+    private void StopDiscoveryRoutines()
+    {
+        if (_discoveryBurstRoutine != null)
+        {
+            StopCoroutine(_discoveryBurstRoutine);
+            _discoveryBurstRoutine = null;
+        }
+
+        if (_subnetSweepRoutine != null)
+        {
+            StopCoroutine(_subnetSweepRoutine);
+            _subnetSweepRoutine = null;
+        }
+
+    }
+
+    private System.Collections.IEnumerator BurstDiscoveryRequests(LanDiscovery discovery)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            if (discovery == null)
+                yield break;
+
+            discovery.BroadcastDiscoveryRequest();
+            yield return new WaitForSecondsRealtime(0.25f);
+        }
+
+        _discoveryBurstRoutine = null;
+    }
+
+    private System.Collections.IEnumerator SweepLocalSubnet(LanDiscovery discovery)
+    {
+        foreach (IPAddress address in discovery.GetLikelyLanAddresses())
+        {
+            if (discovery == null)
+                yield break;
+
+            discovery.SendDiscoveryRequestTo(address);
+            yield return null;
+        }
+
+        _subnetSweepRoutine = null;
     }
 
     private static GameObject MakePanel(string name, Transform parent)

@@ -5,17 +5,13 @@ using UnityEngine;
 //
 //  RESPONSIBILITY: Count down each side's time and end the game on timeout.
 //  Writes WhiteTimeRemaining / BlackTimeRemaining on GameStateManager each
-//  Update() so GameplayHUDController picks them up without direct coupling.
+//  Update() so GameplayHUDController can render the latest values.
 //
 //  USAGE:
-//  • Local modes   — Call StartClock(seconds) from GameModeManager or scene init.
-//                    float.MaxValue = unlimited (clock is dormant).
-//  • LAN host      — LanNetworkManager calls StartClock(); host is authoritative.
-//  • LAN client    — LanNetworkManager calls SetTimesFromServer() each RpcTimerSync.
-//
-//  SCENE SETUP:
-//  Attach to the GameManager GameObject alongside GameStateManager.
-// ─────────────────────────────────────────────────────────────────────────────
+//  • Local modes — GameModeManager starts the clock directly.
+//  • LAN host    — LanNetworkManager starts the authoritative clock.
+//  • LAN client  — RpcTimerSync keeps the local display aligned with the host.
+// —————————————————————————————————————————————————————————————————————————————
 public class ChessClock : MonoBehaviour
 {
     public static ChessClock Instance { get; private set; }
@@ -23,23 +19,30 @@ public class ChessClock : MonoBehaviour
     private bool  _running      = false;
     private bool  _isAuthority  = true;   // false on LAN client (server drives the time)
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(this); return; }
+        if (Instance != null && Instance != this)
+        {
+            Destroy(this);
+            return;
+        }
+
         Instance = this;
     }
 
     void Start()
     {
-        GameEvents.OnGameOver   += _ => _running = false;
+        GameEvents.OnGameOver += HandleGameOver;
         GameEvents.OnBoardReset += OnBoardReset;
     }
 
     void OnDestroy()
     {
-        GameEvents.OnGameOver   -= _ => _running = false;
+        GameEvents.OnGameOver -= HandleGameOver;
         GameEvents.OnBoardReset -= OnBoardReset;
+
+        if (Instance == this)
+            Instance = null;
     }
 
     void Update()
@@ -57,7 +60,7 @@ public class ChessClock : MonoBehaviour
             if (_isAuthority && gsm.WhiteTimeRemaining <= 0f)
             {
                 gsm.WhiteTimeRemaining = 0f;
-                gsm.ForceGameOver(GameResult.BlackWins);
+                gsm.ForceGameOver(GameResult.BlackWinsOnTime);
             }
         }
         else
@@ -67,7 +70,7 @@ public class ChessClock : MonoBehaviour
             if (_isAuthority && gsm.BlackTimeRemaining <= 0f)
             {
                 gsm.BlackTimeRemaining = 0f;
-                gsm.ForceGameOver(GameResult.WhiteWins);
+                gsm.ForceGameOver(GameResult.WhiteWinsOnTime);
             }
         }
     }
@@ -91,35 +94,24 @@ public class ChessClock : MonoBehaviour
         }
     }
 
-    /// <summary>Stop and reset the clock (called on rematch / main menu).</summary>
-    public void StopClock()
-    {
-        _running = false;
-        var gsm = GameStateManager.Instance;
-        if (gsm != null)
-        {
-            gsm.WhiteTimeRemaining = float.MaxValue;
-            gsm.BlackTimeRemaining = float.MaxValue;
-        }
-    }
-
-    /// <summary>
-    /// Called by LanNetworkManager.RpcTimerSync to overwrite times on the client.
-    /// The client's clock is not authoritative — it just displays the server's values.
-    /// </summary>
     public void SetTimesFromServer(float whiteSeconds, float blackSeconds)
     {
         var gsm = GameStateManager.Instance;
         if (gsm == null) return;
+
+        _isAuthority = false;
+        _running = true;
         gsm.WhiteTimeRemaining = whiteSeconds;
         gsm.BlackTimeRemaining = blackSeconds;
     }
 
-    // ── Event handlers ────────────────────────────────────────────────────────
+    private void HandleGameOver(GameResult _)
+    {
+        _running = false;
+    }
+
     private void OnBoardReset()
     {
-        // Clock is restarted by LanNetworkManager / GameModeManager after a rematch.
-        // Simply stop it here so the old time doesn't keep counting.
         _running = false;
     }
 }

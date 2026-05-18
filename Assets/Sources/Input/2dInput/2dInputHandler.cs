@@ -41,7 +41,6 @@ public class Chess2DInputHandler : MonoBehaviour
 
     // Drag and Drop state
     private Vector2Int _hoveredSquare = new Vector2Int(-1, -1);
-    private bool       _isDragging    = false;
 
     // Set to true by default so input works before ModeManager is built (KAN-33).
     // ModeManager will explicitly call Activate()/Deactivate() to control this.
@@ -56,11 +55,14 @@ public class Chess2DInputHandler : MonoBehaviour
     // Set by ChessNetworkProxy.TargetGameStarted (not Start) because Mirror
     // hasn't spawned network objects yet when Start() runs.
     private ChessNetworkProxy _localProxy;
+    private bool _callbacksRegistered;
+    private bool _eventsSubscribed;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
-        RegisterButtonCallbacks();
+        ApplyDefaultLocalColorFromMode();
+        EnsureInitialized();
         SubscribeToEvents();
     }
 
@@ -75,7 +77,9 @@ public class Chess2DInputHandler : MonoBehaviour
     // ── Activation (called by ModeManager) ───────────────────────────────────
     public void Activate()
     {
+        EnsureInitialized();
         _isActive = true;
+        renderer2D?.SetPerspective(LocalPlayerIsWhite);
         ClearSelection();
     }
 
@@ -85,17 +89,33 @@ public class Chess2DInputHandler : MonoBehaviour
         ClearSelection();
     }
 
+    private void EnsureInitialized()
+    {
+        if (_callbacksRegistered) return;
+        RegisterButtonCallbacks();
+    }
+
+    private void ApplyDefaultLocalColorFromMode()
+    {
+        if (GameModeManager.Instance != null && GameModeManager.Instance.IsLanClient)
+            LocalPlayerIsWhite = false;
+    }
+
     // ── Event wiring ──────────────────────────────────────────────────────────
     private void SubscribeToEvents()
     {
+        if (_eventsSubscribed) return;
         GameEvents.OnMoveMade   += HandleMoveMade;
         GameEvents.OnBoardReset += HandleBoardReset;
+        _eventsSubscribed = true;
     }
 
     private void UnsubscribeFromEvents()
     {
+        if (!_eventsSubscribed) return;
         GameEvents.OnMoveMade   -= HandleMoveMade;
         GameEvents.OnBoardReset -= HandleBoardReset;
+        _eventsSubscribed = false;
     }
 
     private void HandleMoveMade(MoveRecord move)
@@ -121,6 +141,7 @@ public class Chess2DInputHandler : MonoBehaviour
     // Attaches custom event triggers to each square Image to support clicking and dragging.
     private void RegisterButtonCallbacks()
     {
+        if (_callbacksRegistered) return;
         if (renderer2D == null)
         {
             Debug.LogError("[Chess2DInputHandler] renderer2D is not assigned.");
@@ -144,13 +165,14 @@ public class Chess2DInputHandler : MonoBehaviour
             trigger.col = c;
             trigger.handler = this;
         }
+
+        _callbacksRegistered = true;
     }
 
     // ── Custom Input Events ───────────────────────────────────────────────────
     public void OnSquarePointerDown(int row, int col)
     {
         if (!_isActive) return;
-        _isDragging = true;
         _hoveredSquare = new Vector2Int(row, col);
 
         // Process this as a standard selection/click
@@ -166,8 +188,6 @@ public class Chess2DInputHandler : MonoBehaviour
     public void OnSquarePointerUp(int row, int col)
     {
         if (!_isActive) return;
-        
-        _isDragging = false;
         
         // If we dropped on a square we didn't start on, try to move there.
         // It uses the latest hovered square.
@@ -281,11 +301,28 @@ public class Chess2DInputHandler : MonoBehaviour
     {
         if (gsm.IsNetworked && _localProxy != null)
         {
-            // LAN: send command to server — server validates and relays
-            _localProxy.CmdRequestMove(
-                from.x, from.y, to.x, to.y, (int)promotion);
-            ClearSelection();
-            renderer2D.ClearAllHighlights();
+            bool submitted;
+
+            if (_localProxy.isServer)
+            {
+                // Host already owns the authoritative board, so keep the original
+                // command path instead of predicting locally.
+                _localProxy.CmdRequestMove(
+                    from.x, from.y, to.x, to.y, (int)promotion);
+                submitted = true;
+            }
+            else
+            {
+                // Remote LAN client: optimistically apply the move, then let the
+                // server confirm or reject it.
+                submitted = _localProxy.TrySubmitPredictedLocalMove(from, to, promotion);
+            }
+
+            if (submitted)
+            {
+                ClearSelection();
+                renderer2D.ClearAllHighlights();
+            }
         }
         else
         {

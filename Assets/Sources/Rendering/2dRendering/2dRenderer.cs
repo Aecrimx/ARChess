@@ -55,21 +55,29 @@ public class Chess2DRenderer : MonoBehaviour
     // Computed from boardContainer size and borderFraction
     private float _cellSize;
     private float _boardOffset; // pixel offset from board edge to first square
+    private bool _isInitialized;
+    private bool _eventsSubscribed;
+    private bool _localPlayerIsWhite = true;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
-        ComputeLayout();
-        BuildOverlayGrid();
-        SubscribeToEvents();
+        EnsureInitialized();
+        ApplyDefaultPerspectiveFromMode();
         RedrawPieces();
     }
 
-    void OnDestroy() => UnsubscribeFromEvents();
+    void OnDestroy()
+    {
+        if (_eventsSubscribed)
+            UnsubscribeFromEvents();
+    }
 
     // ── Activation (called by ModeManager) ───────────────────────────────────
     public void Activate()
     {
+        if (!EnsureInitialized()) return;
+        ApplyPerspective();
         boardContainer.gameObject.SetActive(true);
         ClearAllHighlights();
         RedrawPieces();
@@ -77,7 +85,31 @@ public class Chess2DRenderer : MonoBehaviour
 
     public void Deactivate()
     {
+        if (boardContainer == null) return;
         boardContainer.gameObject.SetActive(false);
+    }
+
+    private bool EnsureInitialized()
+    {
+        if (_isInitialized) return true;
+        if (boardContainer == null)
+        {
+            Debug.LogError("[Chess2DRenderer] boardContainer is not assigned.");
+            return false;
+        }
+
+        ComputeLayout();
+        BuildOverlayGrid();
+        SubscribeToEvents();
+        _isInitialized = true;
+        ApplyPerspective();
+        return true;
+    }
+
+    public void SetPerspective(bool isWhite)
+    {
+        _localPlayerIsWhite = isWhite;
+        ApplyPerspective();
     }
 
     // ── Layout calculation ────────────────────────────────────────────────────
@@ -110,7 +142,7 @@ public class Chess2DRenderer : MonoBehaviour
 
             // Layer 3: piece sprite
             _pieces[r, c] = MakeImage($"Pc_{r}{c}", boardContainer);
-            PlaceCell(_pieces[r, c].rectTransform, r, c);
+            PlacePieceCell(_pieces[r, c].rectTransform, r, c);
             _pieces[r, c].color         = Color.clear;
             _pieces[r, c].raycastTarget = false;
         }
@@ -119,14 +151,17 @@ public class Chess2DRenderer : MonoBehaviour
     // ── Event wiring ──────────────────────────────────────────────────────────
     private void SubscribeToEvents()
     {
+        if (_eventsSubscribed) return;
         GameEvents.OnMoveMade   += HandleMoveMade;
         GameEvents.OnBoardReset += HandleBoardReset;
+        _eventsSubscribed = true;
     }
 
     private void UnsubscribeFromEvents()
     {
         GameEvents.OnMoveMade   -= HandleMoveMade;
         GameEvents.OnBoardReset -= HandleBoardReset;
+        _eventsSubscribed = false;
     }
 
     private void HandleMoveMade(MoveRecord move) => RedrawPieces();
@@ -140,6 +175,7 @@ public class Chess2DRenderer : MonoBehaviour
     // ── Piece drawing ─────────────────────────────────────────────────────────
     public void RedrawPieces()
     {
+        if (!EnsureInitialized()) return;
         if (GameStateManager.Instance == null) return;
         Piece[,] board = GameStateManager.Instance.Board;
 
@@ -157,12 +193,16 @@ public class Chess2DRenderer : MonoBehaviour
                 _pieces[r, c].sprite = GetSprite(p);
                 _pieces[r, c].color  = Color.white;
             }
+
+            _pieces[r, c].rectTransform.localRotation =
+                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
         }
     }
 
     // ── Public highlight API (called by Chess2DInputHandler) ──────────────────
     public void ClearAllHighlights()
     {
+        if (!EnsureInitialized()) return;
         for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++)
             _highlights[r, c].color = Color.clear;
@@ -178,7 +218,11 @@ public class Chess2DRenderer : MonoBehaviour
     }
 
     /// <summary>Exposes hit area Images so Chess2DInputHandler can add Button components.</summary>
-    public Image GetHitArea(int row, int col) => _hitAreas[row, col];
+    public Image GetHitArea(int row, int col)
+    {
+        if (!EnsureInitialized()) return null;
+        return _hitAreas[row, col];
+    }
 
     // ── Cell placement ────────────────────────────────────────────────────────
     private void PlaceCell(RectTransform rt, int row, int col)
@@ -191,6 +235,43 @@ public class Chess2DRenderer : MonoBehaviour
             _boardOffset + col * _cellSize,
             _boardOffset + row * _cellSize
         );
+    }
+
+    private void PlacePieceCell(RectTransform rt, int row, int col)
+    {
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.zero;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(_cellSize, _cellSize);
+        rt.anchoredPosition = new Vector2(
+            _boardOffset + col * _cellSize + (_cellSize * 0.5f),
+            _boardOffset + row * _cellSize + (_cellSize * 0.5f)
+        );
+    }
+
+    private void ApplyDefaultPerspectiveFromMode()
+    {
+        if (GameModeManager.Instance != null && GameModeManager.Instance.IsLanClient)
+            _localPlayerIsWhite = false;
+
+        ApplyPerspective();
+    }
+
+    private void ApplyPerspective()
+    {
+        if (boardContainer == null) return;
+
+        boardContainer.localRotation =
+            _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+
+        for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+        {
+            if (_pieces[r, c] == null) continue;
+
+            _pieces[r, c].rectTransform.localRotation =
+                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+        }
     }
 
     // ── Utility ───────────────────────────────────────────────────────────────

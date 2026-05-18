@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -31,6 +32,7 @@ public class GameModeManager : MonoBehaviour
 
     [Header("Scene Names")]
     public string mainMenuSceneName = "MainMenu";
+    private bool _isExitingToMenu;
 
     void Awake()
     {
@@ -40,10 +42,17 @@ public class GameModeManager : MonoBehaviour
         ReadSettings();
     }
 
+    void OnDestroy()
+    {
+        if (Instance == this)
+            Instance = null;
+    }
+
     void Start()
     {
         if (!IsLan && GameStateManager.Instance != null)
         {
+            GameStateManager.Instance.IsNetworked = false;
             GameStateManager.Instance.InitBoard(TimerSeconds);
             ChessClock.Instance?.StartClock(TimerSeconds, true);
         }
@@ -83,6 +92,46 @@ public class GameModeManager : MonoBehaviour
     public void ReturnToMainMenu()
     {
         SceneManager.LoadScene(mainMenuSceneName);
+    }
+
+    /// <summary>
+    /// Leaves the current match safely, disconnecting LAN if needed and then
+    /// returning to the main menu.
+    /// </summary>
+    public void ExitCurrentGameToMainMenu()
+    {
+        if (_isExitingToMenu)
+            return;
+
+        StartCoroutine(ExitCurrentGameToMainMenuRoutine());
+    }
+
+    private IEnumerator ExitCurrentGameToMainMenuRoutine()
+    {
+        _isExitingToMenu = true;
+
+        GameObject persistentGameManager = GameStateManager.Instance != null
+            ? GameStateManager.Instance.gameObject
+            : null;
+
+        LanNetworkManager lanManager = LanNetworkManager.Instance;
+        if (lanManager != null)
+        {
+            lanManager.Disconnect();
+            Mirror.NetworkManager.ResetStatics();
+            Destroy(lanManager.gameObject);
+
+            // Wait one frame so the persistent NetworkManager is gone before MainMenu loads.
+            yield return null;
+        }
+
+        // GameStateManager marks the whole GameManager object as DontDestroyOnLoad,
+        // so we must tear down that entire stack here or the next match reuses stale
+        // GameModeManager / ChessClock state.
+        if (persistentGameManager != null)
+            Destroy(persistentGameManager);
+
+        ReturnToMainMenu();
     }
 
     /// <summary>Is this a single-player game against the AI?</summary>

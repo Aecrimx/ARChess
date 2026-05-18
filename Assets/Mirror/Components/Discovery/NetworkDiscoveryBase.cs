@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -38,8 +40,8 @@ namespace Mirror.Discovery
 
         [SerializeField]
         [Tooltip("Time in seconds between multi-cast messages")]
-        [Range(1, 60)]
-        float ActiveDiscoveryInterval = 3;
+        [Range(0.1f, 60)]
+        float ActiveDiscoveryInterval = 0.25f;
 
         [Tooltip("Transport to be advertised during discovery")]
         public Transport transport;
@@ -331,6 +333,7 @@ namespace Mirror.Discovery
                 throw;
             }
 
+            BeginMulticastLock();
             _ = ClientListenAsync();
 
             if (enableActiveDiscovery) InvokeRepeating(nameof(BroadcastDiscoveryRequest), 0, ActiveDiscoveryInterval);
@@ -394,20 +397,6 @@ namespace Mirror.Discovery
                 return;
             }
 
-            IPEndPoint endPoint = new IPEndPoint(IPAddress.Broadcast, serverBroadcastListenPort);
-
-            if (!string.IsNullOrWhiteSpace(BroadcastAddress))
-            {
-                try
-                {
-                    endPoint = new IPEndPoint(IPAddress.Parse(BroadcastAddress), serverBroadcastListenPort);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogException(ex);
-                }
-            }
-
             using (NetworkWriterPooled writer = NetworkWriterPool.Get())
             {
                 writer.WriteLong(secretHandshake);
@@ -420,12 +409,21 @@ namespace Mirror.Discovery
 
                     ArraySegment<byte> data = writer.ToArraySegment();
 
-                    //Debug.Log($"Discovery: Sending BroadcastDiscoveryRequest {request}");
-                    clientUdpClient.SendAsync(data.Array, data.Count, endPoint);
+                    foreach (IPEndPoint endPoint in GetDiscoveryEndPoints())
+                    {
+                        try
+                        {
+                            clientUdpClient.SendAsync(data.Array, data.Count, endPoint);
+                        }
+                        catch (Exception)
+                        {
+                            // It is ok if we can't broadcast to one of the addresses
+                        }
+                    }
                 }
                 catch (Exception)
                 {
-                    // It is ok if we can't broadcast to one of the addresses
+                    // It is ok if we can't serialize one malformed request
                 }
             }
         }
@@ -469,5 +467,72 @@ namespace Mirror.Discovery
         protected abstract void ProcessResponse(Response response, IPEndPoint endpoint);
 
         #endregion
+
+        IEnumerable<IPEndPoint> GetDiscoveryEndPoints()
+        {
+            var yielded = new HashSet<string>();
+
+            if (!string.IsNullOrWhiteSpace(BroadcastAddress))
+            {
+                IPAddress explicitAddress = IPAddress.Parse(BroadcastAddress);
+                yield return new IPEndPoint(explicitAddress, serverBroadcastListenPort);
+                yield break;
+            }
+
+            foreach (IPAddress address in GetBroadcastAddresses())
+            {
+                string key = address.ToString();
+                if (!yielded.Add(key)) continue;
+                yield return new IPEndPoint(address, serverBroadcastListenPort);
+            }
+        }
+
+        IEnumerable<IPAddress> GetBroadcastAddresses()
+        {
+            yield return IPAddress.Broadcast;
+
+            foreach (NetworkInterface networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (networkInterface.OperationalStatus != OperationalStatus.Up)
+                    continue;
+
+                IPInterfaceProperties properties;
+                try
+                {
+                    properties = networkInterface.GetIPProperties();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (UnicastIPAddressInformation unicast in properties.UnicastAddresses)
+                {
+                    if (unicast.Address.AddressFamily != AddressFamily.InterNetwork)
+                        continue;
+
+                    if (unicast.IPv4Mask == null)
+                        continue;
+
+                    IPAddress broadcast = GetBroadcastAddress(unicast.Address, unicast.IPv4Mask);
+                    if (broadcast != null)
+                        yield return broadcast;
+                }
+            }
+        }
+
+        static IPAddress GetBroadcastAddress(IPAddress address, IPAddress subnetMask)
+        {
+            byte[] ipBytes = address.GetAddressBytes();
+            byte[] maskBytes = subnetMask.GetAddressBytes();
+            if (ipBytes.Length != maskBytes.Length)
+                return null;
+
+            byte[] broadcastBytes = new byte[ipBytes.Length];
+            for (int i = 0; i < ipBytes.Length; i++)
+                broadcastBytes[i] = (byte)(ipBytes[i] | (~maskBytes[i] & 0xFF));
+
+            return new IPAddress(broadcastBytes);
+        }
     }
 }

@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using Mirror;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  LanNetworkManager
 //
 //  RESPONSIBILITY: Manage Mirror connections, colour assignment, scene
@@ -11,19 +12,19 @@ using UnityEngine;
 //  SCENE SETUP:
 //  1. Add a GameObject "LanNetworkManager" to the MainMenu scene.
 //  2. Attach this script + LanDiscovery to it.
-//  3. Assign playerPrefab → ChessNetworkProxy prefab.
-//  4. Set onlineScene → "ChessScene" (exact scene name).
+//  3. Assign playerPrefab -> ChessNetworkProxy prefab.
+//  4. Set onlineScene -> "ChessScene" (exact scene name).
 //  5. Mirror's NetworkManager handles DontDestroyOnLoad automatically.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 public class LanNetworkManager : NetworkManager
 {
     // Convenient typed singleton (Mirror already provides NetworkManager.singleton)
     public static LanNetworkManager Instance =>
         singleton as LanNetworkManager;
 
-    // ── Config set by HostLobbyPanel before StartHost() ───────────────────────
-    [HideInInspector] public string  HostPlayerName   = "Player";
-    [HideInInspector] public float   TimerSeconds     = float.MaxValue;
+    // Config set by HostLobbyPanel before StartHost()
+    [HideInInspector] public string HostPlayerName = "Player";
+    [HideInInspector] public float TimerSeconds = float.MaxValue;
 
     // The chess scene to load when both players are ready.
     // NOTE: leave Mirror's built-in 'Online Scene' field BLANK in the Inspector
@@ -31,57 +32,75 @@ public class LanNetworkManager : NetworkManager
     [Header("Chess Settings")]
     public string gameSceneName = "ChessScene";
 
-    // ── Connection tracking ───────────────────────────────────────────────────
-    // Index 0 = host connection, Index 1 = remote client connection.
+    // Current player connections. Do not infer host/client role from list order;
+    // Mirror may not add the local host connection first on every platform.
     private readonly List<NetworkConnectionToClient> _connOrder =
         new List<NetworkConnectionToClient>();
 
     // Colour assignment (host gets this, client gets the opposite)
     private bool _hostIsWhite;
 
-    // ── Timer sync ────────────────────────────────────────────────────────────
+    // Timer sync
     private float _timerSyncInterval = 2f;
-    private float _timerSyncTimer    = 0f;
+    private float _timerSyncTimer = 0f;
 
-    // ── Client Ready State ────────────────────────────────────────────────────
-    private int _readyCount = 0;
+    // Explicit scene-ready startup state
+    private readonly HashSet<int> _sceneReadyConnections = new HashSet<int>();
+    private bool _matchStartedForScene = false;
 
-    // ════════════════════════════════════════════════════════════════════════════
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        ResetSessionState();
+    }
+
+    public override void OnStopServer()
+    {
+        ResetSessionState();
+        GetComponent<LanDiscovery>()?.StopDiscovery();
+        base.OnStopServer();
+    }
+
+    public override void OnStopClient()
+    {
+        _timerSyncTimer = 0f;
+        GetComponent<LanDiscovery>()?.StopDiscovery();
+        base.OnStopClient();
+    }
+
+    // =========================================================================
     //  SERVER CALLBACKS
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     public override void OnServerConnect(NetworkConnectionToClient conn)
     {
         base.OnServerConnect(conn);
+
         // Reject more than 2 players
         if (numPlayers >= 2)
-        {
             conn.Disconnect();
-        }
     }
 
     public override void OnServerAddPlayer(NetworkConnectionToClient conn)
     {
-        base.OnServerAddPlayer(conn);   // spawns the playerPrefab
+        base.OnServerAddPlayer(conn); // spawns the playerPrefab
         _connOrder.Add(conn);
 
         Debug.Log($"[LanNetworkManager] Player joined. Total: {_connOrder.Count}");
 
         if (_connOrder.Count == 2)
         {
-            // Randomise colours
-            _hostIsWhite = Random.value >= 0.5f;
+            // Keep host = white and client = black so turn order and board
+            // perspective stay predictable across devices.
+            _hostIsWhite = true;
+            _matchStartedForScene = false;
+            _sceneReadyConnections.Clear();
 
-            // Assign SyncVar IsWhite on each proxy before scene change
-            for (int i = 0; i < _connOrder.Count; i++)
-            {
-                var proxy = _connOrder[i].identity?.GetComponent<ChessNetworkProxy>();
-                if (proxy != null)
-                    proxy.IsWhite = (i == 0) == _hostIsWhite;
-            }
+            // Assign SyncVar IsWhite on each proxy before scene change.
+            ApplyConnectionAssignments();
+            GetComponent<LanDiscovery>()?.StopDiscovery();
 
-            // Load the game scene for all clients (manual — Mirror's onlineScene is left blank)
-            _readyCount = 0;
+            // Load the game scene for all clients (manual - Mirror's onlineScene is left blank)
             ServerChangeScene(gameSceneName);
         }
     }
@@ -91,8 +110,10 @@ public class LanNetworkManager : NetworkManager
         _connOrder.Remove(conn);
         base.OnServerDisconnect(conn);
 
-        // If a player leaves mid-game, end the game
-        if (GameStateManager.Instance != null &&
+        // Ignore delayed shutdown callbacks once we've already returned to menu
+        // or switched into a non-LAN mode.
+        if (IsActiveLanMatch() &&
+            GameStateManager.Instance != null &&
             GameStateManager.Instance.Result == GameResult.Ongoing)
         {
             GameStateManager.Instance.ForceGameOver(GameResult.OpponentDisconnected);
@@ -103,51 +124,17 @@ public class LanNetworkManager : NetworkManager
     {
         base.OnServerSceneChanged(sceneName);
 
-        if (sceneName != gameSceneName) return;
+        if (sceneName != gameSceneName)
+            return;
 
         // Ensure IsNetworked is true on the host's GameStateManager early
         if (GameStateManager.Instance != null)
-        {
             GameStateManager.Instance.IsNetworked = true;
-        }
     }
 
-    public override void OnServerReady(NetworkConnectionToClient conn)
-    {
-        base.OnServerReady(conn);
-
-        // We only care about ready messages when in the game scene
-        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name != gameSceneName) return;
-
-        _readyCount++;
-        Debug.Log($"[LanNetworkManager] Client ready ({_readyCount}/2).");
-
-        if (_readyCount == 2)
-        {
-            Debug.Log("[LanNetworkManager] Both clients ready — starting game");
-            
-            if (GameStateManager.Instance != null)
-            {
-                GameStateManager.Instance.IsNetworked = true;
-                GameStateManager.Instance.InitBoard(TimerSeconds);
-            }
-
-            if (ChessClock.Instance != null)
-                ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
-
-            for (int i = 0; i < _connOrder.Count; i++)
-            {
-                var identity = _connOrder[i].identity;
-                if (identity == null) continue;
-                var proxy = identity.GetComponent<ChessNetworkProxy>();
-                proxy?.TargetGameStarted(_connOrder[i], isWhite: (i == 0) == _hostIsWhite, TimerSeconds);
-            }
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     //  CLIENT CALLBACKS
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     public override void OnClientConnect()
     {
@@ -159,26 +146,35 @@ public class LanNetworkManager : NetworkManager
     {
         base.OnClientDisconnect();
         Debug.Log("[LanNetworkManager] Disconnected from server.");
-        
-        // If we are still in the game scene, the host dropped
-        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == gameSceneName)
+
+        // Ignore delayed shutdown callbacks once we've already returned to menu
+        // or switched into a non-LAN mode.
+        if (IsActiveLanMatch() &&
+            GameStateManager.Instance != null &&
+            GameStateManager.Instance.Result == GameResult.Ongoing)
         {
-            if (GameStateManager.Instance != null &&
-                GameStateManager.Instance.Result == GameResult.Ongoing)
-            {
-                GameStateManager.Instance.ForceGameOver(GameResult.OpponentDisconnected);
-            }
+            GameStateManager.Instance.ForceGameOver(GameResult.OpponentDisconnected);
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
+    public override void OnClientSceneChanged()
+    {
+        base.OnClientSceneChanged();
+
+        if (SceneManager.GetActiveScene().name != gameSceneName)
+            return;
+
+        StartCoroutine(ReportSceneReadyWhenLocalPlayerExists());
+    }
+
+    // =========================================================================
     //  REMATCH (called by GameOverOverlay on the host)
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     [Server]
     public void RequestRematch()
     {
-        _hostIsWhite = Random.value >= 0.5f;
+        _hostIsWhite = true;
 
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.InitBoard(TimerSeconds);
@@ -187,18 +183,23 @@ public class LanNetworkManager : NetworkManager
             ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
 
         // Notify proxies of new colours via TargetRpc (one colour per player)
+        ApplyConnectionAssignments();
         for (int i = 0; i < _connOrder.Count; i++)
         {
             var identity = _connOrder[i].identity;
-            if (identity == null) continue;
+            if (identity == null)
+                continue;
+
             var proxy = identity.GetComponent<ChessNetworkProxy>();
-            proxy?.TargetGameStarted(_connOrder[i], isWhite: (i == 0) == _hostIsWhite, TimerSeconds);
+            bool isWhite = IsWhiteForConnection(_connOrder[i]);
+            proxy?.TargetGameStarted(_connOrder[i], isWhite, TimerSeconds);
+            Debug.Log($"[LanNetworkManager] Rematch -> conn={_connOrder[i].connectionId} host={IsHostConnection(_connOrder[i])} isWhite={isWhite}");
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    //  TIMER SYNC (server → client, periodic)
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
+    //  TIMER SYNC (server -> client, periodic)
+    // =========================================================================
 
     public override void Update()
     {
@@ -210,21 +211,21 @@ public class LanNetworkManager : NetworkManager
         if (_timerSyncTimer < _timerSyncInterval) return;
         _timerSyncTimer = 0f;
 
-        // Broadcast current times to all proxies
-        foreach (var conn in _connOrder)
-        {
-            var identity = conn.identity;
-            if (identity == null) continue;   // guard: destroyed during scene transitions
-            var proxy = identity.GetComponent<ChessNetworkProxy>();
-            proxy?.RpcTimerSync(
-                GameStateManager.Instance.WhiteTimeRemaining,
-                GameStateManager.Instance.BlackTimeRemaining);
-        }
+        // One ClientRpc fan-outs to all connected clients, so sending it once is enough.
+        if (_connOrder.Count == 0) return;
+
+        var firstIdentity = _connOrder[0].identity;
+        if (firstIdentity == null) return;
+
+        var firstProxy = firstIdentity.GetComponent<ChessNetworkProxy>();
+        firstProxy?.RpcTimerSync(
+            GameStateManager.Instance.WhiteTimeRemaining,
+            GameStateManager.Instance.BlackTimeRemaining);
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     //  HELPERS
-    // ════════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     /// <summary>
     /// Clean disconnect usable from GameOverOverlay or any UI button.
@@ -232,7 +233,119 @@ public class LanNetworkManager : NetworkManager
     /// </summary>
     public void Disconnect()
     {
+        GetComponent<LanDiscovery>()?.StopDiscovery();
         if (NetworkServer.active) StopHost();
-        else                      StopClient();
+        else StopClient();
+    }
+
+    private void ResetSessionState()
+    {
+        _connOrder.Clear();
+        _timerSyncTimer = 0f;
+        _hostIsWhite = true;
+        _sceneReadyConnections.Clear();
+        _matchStartedForScene = false;
+    }
+
+    [Server]
+    public void NotifyClientSceneReady(NetworkConnectionToClient conn)
+    {
+        if (conn == null) return;
+        if (SceneManager.GetActiveScene().name != gameSceneName) return;
+
+        if (_sceneReadyConnections.Add(conn.connectionId))
+        {
+            Debug.Log($"[LanNetworkManager] Scene-ready from connection {conn.connectionId} ({_sceneReadyConnections.Count}/2).");
+        }
+
+        if (_matchStartedForScene) return;
+        if (_connOrder.Count < 2 || _sceneReadyConnections.Count < 2) return;
+
+        _matchStartedForScene = true;
+
+        if (GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.IsNetworked = true;
+            GameStateManager.Instance.InitBoard(TimerSeconds);
+        }
+
+        if (ChessClock.Instance != null)
+            ChessClock.Instance.StartClock(TimerSeconds, isAuthority: true);
+
+        ApplyConnectionAssignments();
+        for (int i = 0; i < _connOrder.Count; i++)
+        {
+            var identity = _connOrder[i].identity;
+            if (identity == null)
+                continue;
+
+            var proxy = identity.GetComponent<ChessNetworkProxy>();
+            bool isWhite = IsWhiteForConnection(_connOrder[i]);
+            proxy?.TargetGameStarted(_connOrder[i], isWhite, TimerSeconds);
+            Debug.Log($"[LanNetworkManager] Scene-ready start -> conn={_connOrder[i].connectionId} host={IsHostConnection(_connOrder[i])} isWhite={isWhite}");
+        }
+    }
+
+    private System.Collections.IEnumerator ReportSceneReadyWhenLocalPlayerExists()
+    {
+        float timeoutAt = Time.unscaledTime + 5f;
+        while (Time.unscaledTime < timeoutAt)
+        {
+            if (NetworkClient.localPlayer != null)
+                break;
+
+            yield return null;
+        }
+
+        if (NetworkClient.localPlayer == null)
+        {
+            Debug.LogWarning("[LanNetworkManager] Local player not ready after scene change.");
+            yield break;
+        }
+
+        var proxy = NetworkClient.localPlayer.GetComponent<ChessNetworkProxy>();
+        if (proxy == null)
+        {
+            Debug.LogWarning("[LanNetworkManager] Local player proxy missing after scene change.");
+            yield break;
+        }
+
+        proxy.CmdReportSceneReady();
+    }
+
+    private void ApplyConnectionAssignments()
+    {
+        foreach (NetworkConnectionToClient conn in _connOrder)
+        {
+            if (conn == null)
+                continue;
+
+            var proxy = conn.identity?.GetComponent<ChessNetworkProxy>();
+            if (proxy == null)
+                continue;
+
+            bool isWhite = IsWhiteForConnection(conn);
+            proxy.IsWhite = isWhite;
+
+            Debug.Log($"[LanNetworkManager] Assign colour -> conn={conn.connectionId} host={IsHostConnection(conn)} isWhite={isWhite}");
+        }
+    }
+
+    private bool IsWhiteForConnection(NetworkConnectionToClient conn)
+    {
+        return IsHostConnection(conn) ? _hostIsWhite : !_hostIsWhite;
+    }
+
+    private bool IsActiveLanMatch()
+    {
+        return SceneManager.GetActiveScene().name == gameSceneName &&
+               GameModeManager.Instance != null &&
+               GameModeManager.Instance.IsLan;
+    }
+
+    private static bool IsHostConnection(NetworkConnectionToClient conn)
+    {
+        return conn != null &&
+               (conn is LocalConnectionToClient || conn.connectionId == NetworkConnection.LocalConnectionId);
     }
 }

@@ -602,6 +602,13 @@ MonoBehaviour:
   isPlayerWhite: 1
   playerTurnColor: {r: 0.47843137, g: 0.43529412, b: 0.4, a: 1}
   opponentTurnColor: {r: 0.3647059, g: 0.2901961, b: 0.45882353, a: 1}
+  menuButtonSprite: {fileID: -5177388603050735206, guid: 2febaebb15ae2364da99a9ce033b399f, type: 3}
+  menuPanelSprite: {fileID: -5177388603050735206, guid: 2f824e0353ae7894da2f606a5835a176, type: 3}
+  menuOverlayColor: {r: 0, g: 0, b: 0, a: 0.72}
+  menuPanelColor: {r: 0.18, g: 0.14, b: 0.24, a: 1}
+  menuPrimaryButtonColor: {r: 0.59, g: 0.48, b: 0.71, a: 1}
+  menuSecondaryButtonColor: {r: 0.5882353, g: 0.4784314, b: 0.70980394, a: 1}
+  menuTextColor: {r: 0.98, g: 0.94, b: 0.9, a: 1}
 --- !u!1 &925113105
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using Mirror;
 using Mirror.Discovery;
 using UnityEngine;
@@ -74,6 +77,71 @@ public class LanDiscovery : NetworkDiscoveryBase<DiscoveryRequest, DiscoveryResp
         OnServerDiscovered?.Invoke(response);
     }
 
+    public void SendDiscoveryRequestTo(IPAddress address)
+    {
+        if (clientUdpClient == null || address == null)
+            return;
+
+        using (NetworkWriterPooled writer = NetworkWriterPool.Get())
+        {
+            writer.WriteLong(secretHandshake);
+            writer.Write(GetRequest());
+
+            ArraySegment<byte> data = writer.ToArraySegment();
+            clientUdpClient.SendAsync(data.Array, data.Count, new IPEndPoint(address, serverBroadcastListenPort));
+        }
+    }
+
+    public IEnumerable<IPAddress> GetLikelyLanAddresses()
+    {
+        var yielded = new HashSet<string>();
+
+        foreach (NetworkInterface networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (networkInterface.OperationalStatus != OperationalStatus.Up)
+                continue;
+
+            IPInterfaceProperties properties;
+            try
+            {
+                properties = networkInterface.GetIPProperties();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (UnicastIPAddressInformation unicast in properties.UnicastAddresses)
+            {
+                if (unicast.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+
+                if (IPAddress.IsLoopback(unicast.Address))
+                    continue;
+
+                if (!IsPrivateLanAddress(unicast.Address))
+                    continue;
+
+                byte[] localBytes = unicast.Address.GetAddressBytes();
+                for (int lastOctet = 1; lastOctet <= 254; lastOctet++)
+                {
+                    if (lastOctet == localBytes[3]) continue;
+
+                    var address = new IPAddress(new byte[]
+                    {
+                        localBytes[0],
+                        localBytes[1],
+                        localBytes[2],
+                        (byte)lastOctet
+                    });
+
+                    if (yielded.Add(address.ToString()))
+                        yield return address;
+                }
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string FormatTimer(float seconds)
@@ -81,5 +149,23 @@ public class LanDiscovery : NetworkDiscoveryBase<DiscoveryRequest, DiscoveryResp
         if (seconds >= float.MaxValue) return "Unlimited";
         int mins = Mathf.RoundToInt(seconds / 60f);
         return $"{mins} min";
+    }
+
+    private static bool IsPrivateLanAddress(IPAddress address)
+    {
+        byte[] bytes = address.GetAddressBytes();
+        if (bytes.Length != 4)
+            return false;
+
+        if (bytes[0] == 10)
+            return true;
+
+        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            return true;
+
+        if (bytes[0] == 192 && bytes[1] == 168)
+            return true;
+
+        return false;
     }
 }
