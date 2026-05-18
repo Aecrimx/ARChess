@@ -264,6 +264,15 @@ public class Chess2DRenderer : MonoBehaviour
         boardContainer.localRotation =
             _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
 
+        // Keep the printed board coordinates readable for the black-side view.
+        // The container still rotates so the squares/pieces/input perspective flip,
+        // but the board artwork itself is counter-rotated back upright.
+        if (boardImage != null && boardImage.rectTransform != boardContainer)
+        {
+            boardImage.rectTransform.localRotation =
+                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+        }
+
         for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++)
         {

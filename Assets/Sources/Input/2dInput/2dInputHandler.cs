@@ -302,6 +302,7 @@ public class Chess2DInputHandler : MonoBehaviour
         if (gsm.IsNetworked && _localProxy != null)
         {
             bool submitted;
+            bool clearHighlightsAfterSubmit = true;
 
             if (_localProxy.isServer)
             {
@@ -316,12 +317,16 @@ public class Chess2DInputHandler : MonoBehaviour
                 // Remote LAN client: optimistically apply the move, then let the
                 // server confirm or reject it.
                 submitted = _localProxy.TrySubmitPredictedLocalMove(from, to, promotion);
+                // The predicted move already fired OnMoveMade locally, which
+                // repaints the last-move marker. Don't wipe it here.
+                clearHighlightsAfterSubmit = false;
             }
 
             if (submitted)
             {
                 ClearSelection();
-                renderer2D.ClearAllHighlights();
+                if (clearHighlightsAfterSubmit)
+                    renderer2D.ClearAllHighlights();
             }
         }
         else

@@ -107,8 +107,15 @@ public class LanNetworkManager : NetworkManager
 
     public override void OnServerDisconnect(NetworkConnectionToClient conn)
     {
+        bool disconnectedHostConnection = IsHostConnection(conn);
         _connOrder.Remove(conn);
         base.OnServerDisconnect(conn);
+
+        Debug.Log($"[LanNetworkManager] OnServerDisconnect -> conn={conn?.connectionId} host={disconnectedHostConnection}");
+
+        // The host's own local connection is never the opponent.
+        if (disconnectedHostConnection)
+            return;
 
         // Ignore delayed shutdown callbacks once we've already returned to menu
         // or switched into a non-LAN mode.
@@ -145,7 +152,13 @@ public class LanNetworkManager : NetworkManager
     public override void OnClientDisconnect()
     {
         base.OnClientDisconnect();
-        Debug.Log("[LanNetworkManager] Disconnected from server.");
+        Debug.Log($"[LanNetworkManager] OnClientDisconnect -> hostMode={NetworkServer.active}");
+
+        // When running as host, the local client side can disconnect without the
+        // remote opponent actually leaving. The authoritative disconnect signal
+        // for the opponent is the server-side remote connection closing.
+        if (NetworkServer.active)
+            return;
 
         // Ignore delayed shutdown callbacks once we've already returned to menu
         // or switched into a non-LAN mode.

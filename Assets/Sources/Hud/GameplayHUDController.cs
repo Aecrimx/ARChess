@@ -173,8 +173,8 @@ namespace Sources.Hud
             _menuButtonRoot = MakeButton(
                 "InGameMenuButton",
                 canvas.transform,
-                new Vector2(0.03f, 0.93f),
-                new Vector2(0.20f, 0.985f),
+                new Vector2(0.80f, 0.93f),
+                new Vector2(0.97f, 0.985f),
                 "Menu",
                 menuPrimaryButtonColor,
                 menuTextColor,
