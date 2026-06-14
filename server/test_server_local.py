@@ -1,7 +1,15 @@
 # pytest test_server_local.py -s
 # de rulat doar local, nu in ci/cd pipeline
+import os
+
+import pytest
+
 from fastapi.testclient import TestClient
 from server import app
+
+
+if os.getenv("CI"):
+    pytest.skip("Local-only integration test", allow_module_level=True)
 
 client = TestClient(app)
 

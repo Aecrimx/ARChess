@@ -41,8 +41,33 @@ from google.genai import types
 
 
 app = FastAPI()
-client = genai.Client()
 STOCKFISH_PATH = "/usr/bin/stockfish" # poate fi diferit dar am folosit yay si aici mi l-a trantit
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+MOCK_EXTERNALS = _env_flag("MOCK_EXTERNALS")
+MOCK_STOCKFISH = _env_flag("MOCK_STOCKFISH") or MOCK_EXTERNALS
+MOCK_ANALYZE_RESPONSE = os.getenv(
+    "MOCK_ANALYZE_RESPONSE",
+    "[mock] The move changed the position in a predictable way and the server is responding correctly.",
+)
+MOCK_REVIEW_RESPONSE = os.getenv(
+    "MOCK_REVIEW_RESPONSE",
+    "[mock] Game review completed successfully and the server returned a deterministic response.",
+)
+
+
+_genai_client = None
+
+
+def _get_genai_client():
+    global _genai_client
+    if _genai_client is None:
+        _genai_client = genai.Client()
+    return _genai_client
 
 # response = client.models.generate_content(
 #     model='gemini-2.5-flash',
@@ -96,15 +121,21 @@ STOCKFISH_PATH = "/usr/bin/stockfish" # poate fi diferit dar am folosit yay si a
 
 def evaluate_position(fen: str, depth: int = 15) -> dict:
     """Evaluate a chess position using Stockfish. Returns centipawn score and best move."""
+    if MOCK_STOCKFISH:
+        return {"centipawn_score": 42, "best_move": "e2e4"}
+
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
         board = chess.Board(fen)
         info = engine.analyse(board, chess.engine.Limit(depth=depth))
         score = info["score"].white().score(mate_score=10000)
         best_move = info.get("pv", [None])[0]
-        return {"centipawn_score": score, "best_move": best_move}
+        return {"centipawn_score": score, "best_move": best_move.uci() if best_move else None}
 
 def get_best_move(fen: str, num_moves: int = 3) -> dict:
     """Get the best move and top 3 candidate moves for a position."""
+    if MOCK_STOCKFISH:
+        return {"top_moves": [{"move": "e2e4", "score": 42}, {"move": "d2d4", "score": 18}, {"move": "g1f3", "score": 12}]}
+
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
         board = chess.Board(fen)
         result = engine.analyse(board, chess.engine.Limit(depth=15), multipv=num_moves)
@@ -136,6 +167,12 @@ def call_gemini_with_tools(system_prompt: str, user_message: str) -> str:
     Cand un mesaj da trigger la un tool, SDK-ul de la Google
     executa local si apoi da inapoi raspunsul la Gemini
     """
+    if MOCK_EXTERNALS:
+        normalized_message = user_message.lower()
+        if "review this game" in normalized_message or "pgn:" in normalized_message:
+            return MOCK_REVIEW_RESPONSE
+        return MOCK_ANALYZE_RESPONSE
+
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         tools=[evaluate_position, get_best_move],
@@ -143,8 +180,9 @@ def call_gemini_with_tools(system_prompt: str, user_message: str) -> str:
     )
     
     # client.chats pt a da handle nativ la invocatii multi-turn fara loop-uri manual scrise
-    chat = client.chats.create(
-        model="gemini-2.5-flash",
+    chat = _get_genai_client().chats.create(
+        # model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite",
         config=config
     )
     
@@ -167,6 +205,15 @@ class GameReviewRequest(BaseModel):
 
 # personality = "pleasant_coach"
 personality = "cocky" # e vina ta Robert
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "mock_mode": MOCK_EXTERNALS,
+        "stockfish_mocked": MOCK_STOCKFISH,
+    }
 
 @app.post("/analyze-move")
 async def analyze_move(req: MoveRequest):
