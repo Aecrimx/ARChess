@@ -162,27 +162,24 @@ public class ChessNetworkProxy : NetworkBehaviour
 
         float timeoutAt = Time.unscaledTime + 5f;
         GameStateManager gsm = null;
-        Chess2DInputHandler input = null;
         Sources.Hud.GameplayHUDController hud = null;
-        Chess2DRenderer renderer = null;
+        ChessViewModeController viewModeController = null;
 
         while (Time.unscaledTime < timeoutAt)
         {
             gsm ??= GameStateManager.Instance;
-            input ??= FindAnyObjectByType<Chess2DInputHandler>();
             hud ??= FindAnyObjectByType<Sources.Hud.GameplayHUDController>();
-            renderer ??= FindAnyObjectByType<Chess2DRenderer>();
+            viewModeController ??= ChessViewModeController.Instance ?? FindAnyObjectByType<ChessViewModeController>();
 
-            if (gsm != null && input != null && hud != null && renderer != null && ChessClock.Instance != null)
+            if (gsm != null && hud != null && viewModeController != null && ChessClock.Instance != null)
                 break;
 
             yield return null;
         }
 
         gsm ??= GameStateManager.Instance;
-        input ??= FindAnyObjectByType<Chess2DInputHandler>();
         hud ??= FindAnyObjectByType<Sources.Hud.GameplayHUDController>();
-        renderer ??= FindAnyObjectByType<Chess2DRenderer>();
+        viewModeController ??= ChessViewModeController.Instance ?? FindAnyObjectByType<ChessViewModeController>();
 
         if (gsm == null)
         {
@@ -196,31 +193,18 @@ public class ChessNetworkProxy : NetworkBehaviour
         if (!NetworkServer.active)
             gsm.InitBoard(timerSeconds);
 
-        if (renderer != null)
-        {
-            renderer.SetPerspective(isWhite);
-            renderer.Activate();
-            renderer.RedrawPieces();
-        }
-        else
-        {
-            Debug.LogWarning("[ChessNetworkProxy] Chess2DRenderer not found.");
-        }
-
         if (hud != null)
             hud.SetLocalPlayerIsWhite(isWhite);
         else
             Debug.LogWarning("[ChessNetworkProxy] GameplayHUDController not found.");
 
-        if (input != null)
+        if (viewModeController != null)
         {
-            input.LocalPlayerIsWhite = isWhite;
-            input.SetLocalProxy(this);
-            input.Activate();
+            viewModeController.ConfigureMatchContext(isWhite, this);
         }
         else
         {
-            Debug.LogWarning("[ChessNetworkProxy] Chess2DInputHandler not found.");
+            Debug.LogWarning("[ChessNetworkProxy] ChessViewModeController not found.");
         }
 
         if (!NetworkServer.active && ChessClock.Instance != null)
@@ -263,17 +247,14 @@ public class ChessNetworkProxy : NetworkBehaviour
         gsm.RestoreSnapshot(_pendingPredictedSnapshot);
         gsm.IsNetworked = true;
 
-        FindAnyObjectByType<Chess2DRenderer>()?.RedrawPieces();
-        FindAnyObjectByType<Chess2DRenderer>()?.ClearAllHighlights();
         FindAnyObjectByType<Sources.Hud.CapturedPiecesController>()?.RefreshFromGameState();
         GameEvents.RaiseTurnChanged(gsm.IsWhiteTurn);
 
-        var input = FindAnyObjectByType<Chess2DInputHandler>();
-        if (input != null)
+        ChessViewModeController viewModeController = ChessViewModeController.Instance ?? FindAnyObjectByType<ChessViewModeController>();
+        if (viewModeController != null)
         {
-            input.LocalPlayerIsWhite = IsWhite;
-            input.SetLocalProxy(this);
-            input.Activate();
+            viewModeController.ConfigureMatchContext(IsWhite, this);
+            viewModeController.RefreshAllViews();
         }
 
         ClearPendingPredictedMove();

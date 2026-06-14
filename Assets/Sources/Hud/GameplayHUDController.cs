@@ -1,24 +1,12 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
 
 namespace Sources.Hud
 {
-    // —————————————————————————————————————————————————————————————————————————————
-    //  GameplayHUDController
-    //
-    //  RESPONSIBILITY:
-    //  - Update the timer display and turn indicator during gameplay.
-    //  - Build a lightweight in-game menu button.
-    //  - Show a confirmation dialog before leaving the current match.
-    //
-    //  PHONE BACK BUTTON:
-    //  Unity maps Android's hardware back button to KeyCode.Escape, so the
-    //  same flow is used for the on-screen Menu button and the phone back key.
-    // —————————————————————————————————————————————————————————————————————————————
     public class GameplayHUDController : MonoBehaviour
     {
         [Header("UI Elements")]
@@ -27,7 +15,6 @@ namespace Sources.Hud
         [SerializeField] private TMP_Text turnIndicatorText;
 
         [Header("Settings")]
-        [Tooltip("True if the local player is White, False if Black.")]
         public bool isPlayerWhite = true;
 
         [Header("Colors")]
@@ -46,18 +33,21 @@ namespace Sources.Hud
         private GameObject _menuButtonRoot;
         private GameObject _exitDialogOverlay;
         private TMP_Text _exitDialogBodyText;
-        private Chess2DInputHandler _inputHandler;
         private bool _exitDialogOpen;
 
-        /// <summary>
-        /// Called at game-start by ChessNetworkProxy.RpcGameStarted (LAN)
-        /// or by GameModeManager (local modes) to set the HUD perspective.
-        /// </summary>
+        private Button _arToggleButton;
+        private TMP_Text _arToggleButtonLabel;
+        private TMP_Text _arAvailabilityText;
+        private GameObject _arControlsPanel;
+        private ChessViewModeController _viewModeController;
+
         public void SetLocalPlayerIsWhite(bool value)
         {
             isPlayerWhite = value;
             if (GameStateManager.Instance != null)
+            {
                 UpdateTurnIndicator(GameStateManager.Instance.IsWhiteTurn);
+            }
         }
 
         private void Start()
@@ -67,10 +57,17 @@ namespace Sources.Hud
             GameEvents.OnBoardReset += HandleBoardReset;
             GameEvents.OnGameOver += HandleGameOver;
 
+            _viewModeController = ChessViewModeController.EnsureInScene();
+            if (_viewModeController != null)
+            {
+                _viewModeController.StateChanged += HandleViewModeStateChanged;
+            }
+
             BuildInGameMenu();
 
             bool isWhiteTurn = GameStateManager.Instance == null || GameStateManager.Instance.IsWhiteTurn;
             UpdateTurnIndicator(isWhiteTurn);
+            RefreshARUiState();
         }
 
         private void OnDestroy()
@@ -78,15 +75,25 @@ namespace Sources.Hud
             GameEvents.OnTurnChanged -= HandleTurnChanged;
             GameEvents.OnBoardReset -= HandleBoardReset;
             GameEvents.OnGameOver -= HandleGameOver;
+
+            if (_viewModeController != null)
+            {
+                _viewModeController.StateChanged -= HandleViewModeStateChanged;
+            }
         }
 
         private void Update()
         {
             if (WasExitPressedThisFrame())
+            {
                 HandleExitIntent();
+            }
 
             var gsm = GameStateManager.Instance;
-            if (gsm == null || gsm.Result != GameResult.Ongoing) return;
+            if (gsm == null || gsm.Result != GameResult.Ongoing)
+            {
+                return;
+            }
 
             UpdateTimers(gsm);
         }
@@ -106,19 +113,34 @@ namespace Sources.Hud
             }
 
             if (_menuButtonRoot != null)
+            {
                 _menuButtonRoot.SetActive(true);
+            }
 
             if (_exitDialogOpen)
+            {
                 SetExitDialogVisible(false);
+            }
+
+            RefreshARUiState();
         }
 
         private void HandleGameOver(GameResult _)
         {
             if (_menuButtonRoot != null)
+            {
                 _menuButtonRoot.SetActive(false);
+            }
 
             if (_exitDialogOpen)
+            {
                 SetExitDialogVisible(false, restoreInput: false);
+            }
+        }
+
+        private void HandleViewModeStateChanged()
+        {
+            RefreshARUiState();
         }
 
         private void HandleExitIntent()
@@ -128,7 +150,10 @@ namespace Sources.Hud
 
         private void UpdateTurnIndicator(bool isWhiteTurn)
         {
-            if (turnIndicatorText == null) return;
+            if (turnIndicatorText == null)
+            {
+                return;
+            }
 
             if (isWhiteTurn == isPlayerWhite)
             {
@@ -148,27 +173,50 @@ namespace Sources.Hud
             float opponentTime = isPlayerWhite ? gsm.BlackTimeRemaining : gsm.WhiteTimeRemaining;
 
             if (playerTimerText != null)
+            {
                 playerTimerText.text = FormatTime(playerTime);
+            }
 
             if (opponentTimerText != null)
+            {
                 opponentTimerText.text = FormatTime(opponentTime);
+            }
         }
 
         private void ApplyDefaultLocalColorFromMode()
         {
             if (GameModeManager.Instance != null && GameModeManager.Instance.IsLanClient)
+            {
                 isPlayerWhite = false;
+            }
         }
 
         private void BuildInGameMenu()
         {
             Canvas canvas = GetComponentInParent<Canvas>();
-            if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
             if (canvas == null)
             {
-                Debug.LogWarning("[GameplayHUDController] No Canvas found for in-game menu.");
+                canvas = FindAnyObjectByType<Canvas>();
+            }
+
+            if (canvas == null)
+            {
+                Debug.LogWarning("[GameplayHUDController] No Canvas found for in-game UI.");
                 return;
             }
+
+            _arToggleButton = MakeButton(
+                "ARToggleButton",
+                canvas.transform,
+                new Vector2(0.58f, 0.93f),
+                new Vector2(0.78f, 0.985f),
+                "Enter AR",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                30,
+                menuButtonSprite);
+            _arToggleButton.onClick.AddListener(HandleARTogglePressed);
+            _arToggleButtonLabel = _arToggleButton.GetComponentInChildren<TextMeshProUGUI>();
 
             _menuButtonRoot = MakeButton(
                 "InGameMenuButton",
@@ -182,15 +230,110 @@ namespace Sources.Hud
                 menuButtonSprite).gameObject;
             _menuButtonRoot.GetComponent<Button>().onClick.AddListener(HandleExitIntent);
 
+            _arAvailabilityText = MakeText(
+                "ARAvailabilityText",
+                canvas.transform,
+                new Vector2(0.03f, 0.90f),
+                new Vector2(0.55f, 0.965f),
+                string.Empty,
+                22,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft);
+
+            BuildARControlsPanel(canvas.transform);
+            BuildExitDialog(canvas.transform);
+        }
+
+        private void BuildARControlsPanel(Transform parent)
+        {
+            _arControlsPanel = MakeImage(
+                "ARControlsPanel",
+                parent,
+                new Color(menuPanelColor.r, menuPanelColor.g, menuPanelColor.b, 0.88f),
+                new Vector2(0.10f, 0.02f),
+                new Vector2(0.90f, 0.16f),
+                menuPanelSprite);
+
+            MakeButton(
+                "ARReposition",
+                _arControlsPanel.transform,
+                new Vector2(0.02f, 0.12f),
+                new Vector2(0.18f, 0.88f),
+                "Reposition",
+                menuPrimaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RepositionBoard());
+
+            MakeButton(
+                "ARRotateLeft",
+                _arControlsPanel.transform,
+                new Vector2(0.20f, 0.12f),
+                new Vector2(0.34f, 0.88f),
+                "Rotate -",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(-15f));
+
+            MakeButton(
+                "ARRotateRight",
+                _arControlsPanel.transform,
+                new Vector2(0.36f, 0.12f),
+                new Vector2(0.50f, 0.88f),
+                "Rotate +",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(15f));
+
+            MakeButton(
+                "ARScaleDown",
+                _arControlsPanel.transform,
+                new Vector2(0.52f, 0.12f),
+                new Vector2(0.64f, 0.88f),
+                "Scale -",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(-0.1f));
+
+            MakeButton(
+                "ARScaleUp",
+                _arControlsPanel.transform,
+                new Vector2(0.66f, 0.12f),
+                new Vector2(0.78f, 0.88f),
+                "Scale +",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(0.1f));
+
+            MakeButton(
+                "ARReturn2D",
+                _arControlsPanel.transform,
+                new Vector2(0.80f, 0.12f),
+                new Vector2(0.98f, 0.88f),
+                "Return to 2D",
+                menuPrimaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.ExitARMode());
+
+            _arControlsPanel.SetActive(false);
+        }
+
+        private void BuildExitDialog(Transform parent)
+        {
             _exitDialogOverlay = MakeImage(
                 "ExitDialogOverlay",
-                canvas.transform,
+                parent,
                 menuOverlayColor,
                 Vector2.zero,
                 Vector2.one);
             _exitDialogOverlay.GetComponent<Image>().raycastTarget = true;
 
-            var panel = MakeImage(
+            GameObject panel = MakeImage(
                 "ExitDialogPanel",
                 _exitDialogOverlay.transform,
                 menuPanelColor,
@@ -213,12 +356,12 @@ namespace Sources.Hud
                 panel.transform,
                 new Vector2(0.08f, 0.38f),
                 new Vector2(0.92f, 0.64f),
-                "",
+                string.Empty,
                 34,
                 FontStyle.Normal,
                 TextAnchor.MiddleCenter);
 
-            var stayButton = MakeButton(
+            MakeButton(
                 "StayButton",
                 panel.transform,
                 new Vector2(0.08f, 0.10f),
@@ -227,10 +370,9 @@ namespace Sources.Hud
                 menuSecondaryButtonColor,
                 menuTextColor,
                 34,
-                menuButtonSprite);
-            stayButton.onClick.AddListener(() => SetExitDialogVisible(false));
+                menuButtonSprite).onClick.AddListener(() => SetExitDialogVisible(false));
 
-            var leaveButton = MakeButton(
+            MakeButton(
                 "LeaveButton",
                 panel.transform,
                 new Vector2(0.54f, 0.10f),
@@ -239,10 +381,15 @@ namespace Sources.Hud
                 menuPrimaryButtonColor,
                 menuTextColor,
                 34,
-                menuButtonSprite);
-            leaveButton.onClick.AddListener(ConfirmExitToMenu);
+                menuButtonSprite).onClick.AddListener(ConfirmExitToMenu);
 
             _exitDialogOverlay.SetActive(false);
+        }
+
+        private void HandleARTogglePressed()
+        {
+            _viewModeController ??= ChessViewModeController.EnsureInScene();
+            _viewModeController?.ToggleARMode();
         }
 
         private void ConfirmExitToMenu()
@@ -256,10 +403,14 @@ namespace Sources.Hud
             _exitDialogOpen = visible;
 
             if (_exitDialogOverlay != null)
+            {
                 _exitDialogOverlay.SetActive(visible);
+            }
 
             if (_exitDialogBodyText != null)
+            {
                 _exitDialogBodyText.text = BuildExitPrompt();
+            }
 
             if (visible)
             {
@@ -275,43 +426,84 @@ namespace Sources.Hud
         {
             var gmm = GameModeManager.Instance;
             if (gmm != null && gmm.IsLan)
+            {
                 return "Are you sure you want to leave this LAN match?\nYou will disconnect and return to the main menu.";
+            }
 
             return "Are you sure you want to leave this game and return to the main menu?";
         }
 
         private void SetBoardInputActive(bool active)
         {
-            _inputHandler ??= GetComponent<Chess2DInputHandler>();
-            _inputHandler ??= FindAnyObjectByType<Chess2DInputHandler>();
+            _viewModeController ??= ChessViewModeController.EnsureInScene();
+            _viewModeController?.SetActiveInputEnabled(active);
+        }
 
-            if (_inputHandler == null) return;
+        private void RefreshARUiState()
+        {
+            _viewModeController ??= ChessViewModeController.EnsureInScene();
+            if (_viewModeController == null)
+            {
+                return;
+            }
 
-            if (active) _inputHandler.Activate();
-            else        _inputHandler.Deactivate();
+            if (_arToggleButton != null)
+            {
+                _arToggleButton.interactable = !_viewModeController.IsCheckingAvailability && _viewModeController.CanToggleAR;
+            }
+
+            if (_arToggleButtonLabel != null)
+            {
+                _arToggleButtonLabel.text = _viewModeController.IsARModeActive ? "Return to 2D" : "Enter AR";
+            }
+
+            if (_arControlsPanel != null)
+            {
+                _arControlsPanel.SetActive(_viewModeController.IsARModeActive);
+            }
+
+            if (_arAvailabilityText != null)
+            {
+                if (_viewModeController.IsCheckingAvailability)
+                {
+                    _arAvailabilityText.text = "Checking AR support...";
+                }
+                else if (!_viewModeController.IsARModeActive && !_viewModeController.IsARSupported)
+                {
+                    _arAvailabilityText.text = _viewModeController.AvailabilityMessage;
+                }
+                else
+                {
+                    _arAvailabilityText.text = string.Empty;
+                }
+            }
         }
 
         private string FormatTime(float timeInSeconds)
         {
-            if (timeInSeconds >= float.MaxValue) return "\u221e";
-            int minutes = Mathf.FloorToInt(timeInSeconds / 60F);
+            if (timeInSeconds >= float.MaxValue)
+            {
+                return "\u221e";
+            }
+
+            int minutes = Mathf.FloorToInt(timeInSeconds / 60f);
             int seconds = Mathf.FloorToInt(timeInSeconds - minutes * 60);
-            return string.Format("{0:00}:{1:00}", minutes, seconds);
+            return $"{minutes:00}:{seconds:00}";
         }
 
         private TMP_Text MakeText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax,
-                                  string content, int fontSize, FontStyle fontStyle, TextAnchor alignment)
+            string content, int fontSize, FontStyle fontStyle, TextAnchor alignment)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI));
             go.transform.SetParent(parent, false);
 
-            var rect = go.GetComponent<RectTransform>();
+            RectTransform rect = go.GetComponent<RectTransform>();
             rect.anchorMin = anchorMin;
             rect.anchorMax = anchorMax;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            var text = go.GetComponent<TextMeshProUGUI>();
+            TMP_Text text = go.GetComponent<TextMeshProUGUI>();
             text.text = content;
             text.color = menuTextColor;
             text.fontSize = fontSize;
@@ -319,23 +511,21 @@ namespace Sources.Hud
             text.alignment = ConvertAlignment(alignment);
             text.font = GetMenuFontAsset();
             text.raycastTarget = false;
-
             return text;
         }
 
-        private GameObject MakeImage(string name, Transform parent, Color color,
-                                     Vector2 anchorMin, Vector2 anchorMax, Sprite sprite = null)
+        private GameObject MakeImage(string name, Transform parent, Color color, Vector2 anchorMin, Vector2 anchorMax, Sprite sprite = null)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image));
             go.transform.SetParent(parent, false);
 
-            var rect = go.GetComponent<RectTransform>();
+            RectTransform rect = go.GetComponent<RectTransform>();
             rect.anchorMin = anchorMin;
             rect.anchorMax = anchorMax;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            var image = go.GetComponent<Image>();
+            Image image = go.GetComponent<Image>();
             image.color = color;
             if (sprite != null)
             {
@@ -347,19 +537,18 @@ namespace Sources.Hud
         }
 
         private Button MakeButton(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax,
-                                  string label, Color backgroundColor, Color textColor,
-                                  int fontSize, Sprite sprite = null)
+            string label, Color backgroundColor, Color textColor, int fontSize, Sprite sprite = null)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             go.transform.SetParent(parent, false);
 
-            var rect = go.GetComponent<RectTransform>();
+            RectTransform rect = go.GetComponent<RectTransform>();
             rect.anchorMin = anchorMin;
             rect.anchorMax = anchorMax;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            var image = go.GetComponent<Image>();
+            Image image = go.GetComponent<Image>();
             image.color = backgroundColor;
             if (sprite != null)
             {
@@ -367,10 +556,10 @@ namespace Sources.Hud
                 image.type = Image.Type.Sliced;
             }
 
-            var button = go.GetComponent<Button>();
+            Button button = go.GetComponent<Button>();
             button.transition = Selectable.Transition.ColorTint;
 
-            var labelText = MakeText(
+            TMP_Text labelText = MakeText(
                 "Label",
                 go.transform,
                 Vector2.zero,
@@ -387,13 +576,19 @@ namespace Sources.Hud
         private TMP_FontAsset GetMenuFontAsset()
         {
             if (turnIndicatorText != null && turnIndicatorText.font != null)
+            {
                 return turnIndicatorText.font;
+            }
 
             if (playerTimerText != null && playerTimerText.font != null)
+            {
                 return playerTimerText.font;
+            }
 
             if (opponentTimerText != null && opponentTimerText.font != null)
+            {
                 return opponentTimerText.font;
+            }
 
             return TMP_Settings.defaultFontAsset;
         }
@@ -404,7 +599,7 @@ namespace Sources.Hud
             {
                 TextAnchor.MiddleLeft => TextAlignmentOptions.MidlineLeft,
                 TextAnchor.MiddleRight => TextAlignmentOptions.MidlineRight,
-                _ => TextAlignmentOptions.Midline,
+                _ => TextAlignmentOptions.Midline
             };
         }
 

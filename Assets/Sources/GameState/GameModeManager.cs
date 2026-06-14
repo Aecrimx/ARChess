@@ -40,6 +40,7 @@ public class GameModeManager : MonoBehaviour
         Instance = this;
 
         ReadSettings();
+        ChessViewModeController.EnsureInScene();
     }
 
     void OnDestroy()
@@ -55,6 +56,7 @@ public class GameModeManager : MonoBehaviour
             GameStateManager.Instance.IsNetworked = false;
             GameStateManager.Instance.InitBoard(TimerSeconds);
             ChessClock.Instance?.StartClock(TimerSeconds, true);
+            ChessViewModeController.EnsureInScene()?.ConfigureMatchContext(isWhite: true, proxy: null);
         }
     }
 
