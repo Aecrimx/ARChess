@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -22,15 +23,13 @@ public class ChessARInputHandler : ChessBoardInputBase
     };
 
     private const TrackableType PlacementTrackableTypes =
-        TrackableType.PlaneWithinPolygon |
-        TrackableType.PlaneWithinBounds |
-        TrackableType.PlaneEstimated |
-        TrackableType.PlaneWithinInfinity;
+        TrackableType.PlaneWithinPolygon;
 
     [Header("Dependencies")]
     public Camera arCamera;
     public ARSession arSession;
     public ARRaycastManager raycastManager;
+    public ARAnchorManager anchorManager;
     public ARPlaneManager planeManager;
     public ChessARRenderer arRenderer;
     public PawnPromotionPicker promotionPicker;
@@ -212,6 +211,7 @@ public class ChessARInputHandler : ChessBoardInputBase
         arCamera ??= GetComponentInChildren<Camera>(true);
         arSession ??= GetComponentInChildren<ARSession>(true);
         raycastManager ??= GetComponentInChildren<ARRaycastManager>(true);
+        anchorManager ??= GetComponentInChildren<ARAnchorManager>(true);
         planeManager ??= GetComponentInChildren<ARPlaneManager>(true);
         arRenderer ??= GetComponentInChildren<ChessARRenderer>(true);
         promotionPicker ??= FindAnyObjectByType<PawnPromotionPicker>();
@@ -248,7 +248,7 @@ public class ChessARInputHandler : ChessBoardInputBase
             return;
         }
 
-        if (!TryResolvePlacementPose(screenPosition, out Pose pose))
+        if (!TryGetPlacementHit(screenPosition, out ARRaycastHit placementHit))
         {
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
             Debug.Log($"[ChessARInputHandler] Placement tap missed. screenPosition={screenPosition}");
@@ -256,15 +256,21 @@ public class ChessARInputHandler : ChessBoardInputBase
             return;
         }
 
-        if (arRenderer.PlaceBoard(pose, arCamera != null ? arCamera.transform : null))
+        Pose pose = placementHit.pose;
+        ARAnchor anchor = TryCreatePlacementAnchor(placementHit);
+        if (arRenderer.PlaceBoard(pose, arCamera != null ? arCamera.transform : null, anchor))
         {
             _hasPlacementPose = false;
             SetPlaneVisibility(false);
             _interactionController?.Activate();
             UpdatePlacementIndicator();
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
-            Debug.Log($"[ChessARInputHandler] Board placed at {pose.position}");
+            Debug.Log($"[ChessARInputHandler] Board placed at {pose.position}; anchored={anchor != null}");
 #endif
+        }
+        else if (anchor != null)
+        {
+            Destroy(anchor.gameObject);
         }
     }
 
@@ -390,6 +396,19 @@ public class ChessARInputHandler : ChessBoardInputBase
     {
         pose = default;
 
+        if (!TryGetPlacementHit(screenPosition, out ARRaycastHit hit))
+        {
+            return false;
+        }
+
+        pose = hit.pose;
+        return true;
+    }
+
+    private bool TryGetPlacementHit(Vector2 screenPosition, out ARRaycastHit hit)
+    {
+        hit = default;
+
         if (raycastManager == null)
         {
             return false;
@@ -400,8 +419,48 @@ public class ChessARInputHandler : ChessBoardInputBase
             return false;
         }
 
-        pose = PlaneHits[0].pose;
+        hit = PlaneHits[0];
         return true;
+    }
+
+    private ARAnchor TryCreatePlacementAnchor(ARRaycastHit hit)
+    {
+        if (anchorManager == null || !anchorManager.enabled || anchorManager.subsystem == null)
+        {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            Debug.LogWarning("[ChessARInputHandler] ARAnchorManager is unavailable; placing without an AR anchor.");
+#endif
+            return null;
+        }
+
+        ARPlane plane = planeManager != null ? planeManager.GetPlane(hit.trackableId) : null;
+        if (plane == null)
+        {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            Debug.LogWarning($"[ChessARInputHandler] Raycast hit did not resolve to an ARPlane. trackableId={hit.trackableId}");
+#endif
+            return null;
+        }
+
+        if (anchorManager.descriptor == null || !anchorManager.descriptor.supportsTrackableAttachments)
+        {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            Debug.LogWarning("[ChessARInputHandler] This anchor subsystem does not support anchors attached to planes; placing without an AR anchor.");
+#endif
+            return null;
+        }
+
+        try
+        {
+            return anchorManager.AttachAnchor(plane, hit.pose);
+        }
+        catch (Exception ex)
+        {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            Debug.LogWarning($"[ChessARInputHandler] Failed to attach AR anchor to plane: {ex.Message}");
+#endif
+            return null;
+        }
     }
 
     private void EnsurePlacementIndicator()

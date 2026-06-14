@@ -38,6 +38,7 @@ public class ChessViewModeController : MonoBehaviour
     private ARSession _arSession;
     private Camera _arCamera;
     private AudioListener _arAudioListener;
+    private ARAnchorManager _anchorManager;
     private ARPlaneManager _planeManager;
     private ARRaycastManager _raycastManager;
 
@@ -88,6 +89,12 @@ public class ChessViewModeController : MonoBehaviour
         if (Instance == this)
         {
             Instance = null;
+        }
+
+        if (_arRoot != null)
+        {
+            Destroy(_arRoot);
+            _arRoot = null;
         }
     }
 
@@ -483,11 +490,13 @@ public class ChessViewModeController : MonoBehaviour
         }
 
         _arRoot = new GameObject("ARRoot");
-        _arRoot.transform.SetParent(transform, false);
+        _arRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        _arRoot.transform.localScale = Vector3.one;
 
         GameObject sessionObject = new GameObject("ARSession");
         sessionObject.transform.SetParent(_arRoot.transform, false);
         _arSession = sessionObject.AddComponent<ARSession>();
+        sessionObject.AddComponent<ARInputManager>();
         _arSession.enabled = false;
 
         GameObject originObject = new GameObject("XROrigin");
@@ -504,6 +513,7 @@ public class ChessViewModeController : MonoBehaviour
         xrOrigin.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Device;
 
         _raycastManager = originObject.AddComponent<ARRaycastManager>();
+        _anchorManager = originObject.AddComponent<ARAnchorManager>();
         _planeManager = originObject.AddComponent<ARPlaneManager>();
         _planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal;
         _arCamera = cameraObject.AddComponent<Camera>();
@@ -526,6 +536,7 @@ public class ChessViewModeController : MonoBehaviour
         _arInput.arCamera = _arCamera;
         _arInput.arSession = _arSession;
         _arInput.raycastManager = _raycastManager;
+        _arInput.anchorManager = _anchorManager;
         _arInput.planeManager = _planeManager;
         _arInput.arRenderer = _arRenderer;
         _arInput.promotionPicker = FindAnyObjectByType<PawnPromotionPicker>();

@@ -1,14 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.XR.ARFoundation;
 
 public class ChessARRenderer : ChessBoardRendererBase
 {
     private const string ResourceRoot = "ARModels";
     private const float HighlightHeightOffset = 0.005f;
-    private const float PieceHeightOffset = 0.01f;
-    private const float DefaultBoardSizeMeters = 0.5f;
-    private const float MinBoardSizeMeters = 0.25f;
+    private const float PieceHeightOffset = 0.0f;
+    private const float DefaultBoardSizeMeters = 0.25f;
+    private const float MinBoardSizeMeters = 0.1f;
     private const float MaxBoardSizeMeters = 1.0f;
 
     private readonly Dictionary<Piece, string> _pieceResourceNames = new Dictionary<Piece, string>
@@ -43,6 +44,7 @@ public class ChessARRenderer : ChessBoardRendererBase
     private bool _eventsSubscribed;
     private float _currentBoardSizeMeters = DefaultBoardSizeMeters;
     private Bounds _boardLocalBounds;
+    private ARAnchor _placementAnchor;
 
     public bool IsPlaced => _isPlaced;
     public Vector2 BoardFootprint
@@ -186,15 +188,29 @@ public class ChessARRenderer : ChessBoardRendererBase
         }
     }
 
-    public bool PlaceBoard(Pose pose, Transform cameraTransform)
+    public bool PlaceBoard(Pose pose, Transform cameraTransform, ARAnchor anchor = null)
     {
         if (!EnsureRigBuilt())
         {
             return false;
         }
 
-        _boardRigRoot.transform.position = pose.position;
-        _boardRigRoot.transform.rotation = CalculatePlacementRotation(pose.position, cameraTransform);
+        ClearPlacementAnchor();
+
+        Quaternion placementRotation = CalculatePlacementRotation(pose.position, cameraTransform);
+        if (anchor != null)
+        {
+            _placementAnchor = anchor;
+            _boardRigRoot.transform.SetParent(anchor.transform, false);
+            _boardRigRoot.transform.localPosition = Vector3.zero;
+            _boardRigRoot.transform.localRotation = Quaternion.Inverse(anchor.transform.rotation) * placementRotation;
+        }
+        else
+        {
+            _boardRigRoot.transform.SetParent(transform, true);
+            _boardRigRoot.transform.SetPositionAndRotation(pose.position, placementRotation);
+        }
+
         ApplyBoardScale();
         _boardRigRoot.SetActive(_isActive);
         _isPlaced = true;
@@ -208,8 +224,11 @@ public class ChessARRenderer : ChessBoardRendererBase
         _isPlaced = false;
         if (_boardRigRoot != null)
         {
+            _boardRigRoot.transform.SetParent(transform, true);
             _boardRigRoot.SetActive(false);
         }
+
+        ClearPlacementAnchor();
     }
 
     public void RotateBoard(float degrees)
@@ -290,6 +309,22 @@ public class ChessARRenderer : ChessBoardRendererBase
         }
 
         _boardRigRoot.transform.localScale = Vector3.one * CurrentBoardScale;
+    }
+
+    private void ClearPlacementAnchor()
+    {
+        if (_placementAnchor == null)
+        {
+            return;
+        }
+
+        if (_boardRigRoot != null && _boardRigRoot.transform.parent == _placementAnchor.transform)
+        {
+            _boardRigRoot.transform.SetParent(transform, true);
+        }
+
+        Destroy(_placementAnchor.gameObject);
+        _placementAnchor = null;
     }
 
     private void BuildSquaresAndHighlights()
