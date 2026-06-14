@@ -1,4 +1,5 @@
-# pytest test_server.py -s
+# pytest test_server_local.py -s
+# de rulat doar local, nu in ci/cd pipeline
 from fastapi.testclient import TestClient
 from server import app
 
