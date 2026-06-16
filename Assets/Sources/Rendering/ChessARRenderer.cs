@@ -8,6 +8,7 @@ public class ChessARRenderer : ChessBoardRendererBase
     private const string ResourceRoot = "ARModels";
     private const float HighlightHeightOffset = 0.005f;
     private const float PieceHeightOffset = 0.0f;
+    private const float PieceSquareFillRatio = 0.58f;
     private const float DefaultBoardSizeMeters = 0.25f;
     private const float MinBoardSizeMeters = 0.1f;
     private const float MaxBoardSizeMeters = 1.0f;
@@ -168,7 +169,7 @@ public class ChessARRenderer : ChessBoardRendererBase
             {
                 if (_highlightRenderers[row, col] != null)
                 {
-                    ApplyColorToRenderer(_highlightRenderers[row, col], Color.clear);
+                    SetHighlightRendererColor(_highlightRenderers[row, col], Color.clear);
                 }
             }
         }
@@ -184,7 +185,7 @@ public class ChessARRenderer : ChessBoardRendererBase
         Renderer highlightRenderer = _highlightRenderers[square.x, square.y];
         if (highlightRenderer != null)
         {
-            ApplyColorToRenderer(highlightRenderer, color);
+            SetHighlightRendererColor(highlightRenderer, color);
         }
     }
 
@@ -291,13 +292,11 @@ public class ChessARRenderer : ChessBoardRendererBase
         }
         else
         {
-            GameObject fallbackBoard = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            fallbackBoard.name = "BoardVisual";
-            fallbackBoard.transform.SetParent(_boardVisualRoot, false);
-            fallbackBoard.transform.localScale = new Vector3(1f, 0.05f, 1f);
-            ApplyColorToRenderer(fallbackBoard.GetComponent<Renderer>(), new Color(0.25f, 0.22f, 0.18f, 1f));
+            Debug.LogError($"[ChessARRenderer] Missing AR board model at Resources/{ResourceRoot}/chessboard.");
         }
 
+        _boardLocalBounds = CalculateLocalBounds(_boardVisualRoot);
+        NormalizeChildrenToBoardBounds(_boardVisualRoot, _boardLocalBounds);
         _boardLocalBounds = CalculateLocalBounds(_boardVisualRoot);
     }
 
@@ -344,12 +343,12 @@ public class ChessARRenderer : ChessBoardRendererBase
 
                 var squareObject = new GameObject($"Square_{row}_{col}");
                 squareObject.transform.SetParent(_squaresRoot, false);
-                squareObject.transform.localPosition = new Vector3(centerX, surfaceY + HighlightHeightOffset, centerZ);
+                squareObject.transform.localPosition = new Vector3(centerX, surfaceY, centerZ);
                 squareObject.transform.localRotation = Quaternion.identity;
 
                 var boxCollider = squareObject.AddComponent<BoxCollider>();
                 boxCollider.size = new Vector3(cellWidth, 0.03f, cellDepth);
-                boxCollider.center = Vector3.zero;
+                boxCollider.center = Vector3.up * (HighlightHeightOffset + boxCollider.size.y * 0.5f);
 
                 var squareMarker = squareObject.AddComponent<ARBoardSquare>();
                 squareMarker.Row = row;
@@ -366,7 +365,17 @@ public class ChessARRenderer : ChessBoardRendererBase
                 Destroy(highlight.GetComponent<Collider>());
 
                 Renderer highlightRenderer = highlight.GetComponent<Renderer>();
-                ApplyColorToRenderer(highlightRenderer, Color.clear);
+                if (highlightRenderer != null)
+                {
+                    Material highlightMaterial = CreateHighlightMaterial();
+                    if (highlightMaterial != null)
+                    {
+                        highlightRenderer.sharedMaterial = highlightMaterial;
+                    }
+
+                    highlightRenderer.enabled = false;
+                }
+
                 _highlightRenderers[row, col] = highlightRenderer;
             }
         }
@@ -400,14 +409,17 @@ public class ChessARRenderer : ChessBoardRendererBase
 
         float targetFootprint = Mathf.Min(
             _squareAnchors[0, 0].GetComponent<BoxCollider>().size.x,
-            _squareAnchors[0, 0].GetComponent<BoxCollider>().size.z) * 0.7f * CurrentBoardScale;
+            _squareAnchors[0, 0].GetComponent<BoxCollider>().size.z) * PieceSquareFillRatio * CurrentBoardScale;
 
         float scaleMultiplier = targetFootprint / currentFootprint;
         pieceInstance.transform.localScale *= scaleMultiplier;
 
         Bounds scaledBounds = CalculateWorldBounds(pieceInstance.transform);
-        Vector3 position = squareAnchor.position + Vector3.up * (scaledBounds.extents.y + PieceHeightOffset);
-        pieceInstance.transform.position = position;
+        Vector3 correction = new Vector3(
+            squareAnchor.position.x - scaledBounds.center.x,
+            squareAnchor.position.y + PieceHeightOffset - scaledBounds.min.y,
+            squareAnchor.position.z - scaledBounds.center.z);
+        pieceInstance.transform.position += correction;
     }
 
     private Quaternion CalculatePlacementRotation(Vector3 placementPosition, Transform cameraTransform)
@@ -518,6 +530,75 @@ public class ChessARRenderer : ChessBoardRendererBase
         }
 
         return combined;
+    }
+
+    private static void NormalizeChildrenToBoardBounds(Transform root, Bounds bounds)
+    {
+        if (root == null || root.childCount == 0)
+        {
+            return;
+        }
+
+        Vector3 offset = new Vector3(-bounds.center.x, -bounds.min.y, -bounds.center.z);
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            child.localPosition += offset;
+        }
+    }
+
+    private static void SetHighlightRendererColor(Renderer renderer, Color color)
+    {
+        if (renderer == null)
+        {
+            return;
+        }
+
+        if (color.a <= 0.001f)
+        {
+            renderer.enabled = false;
+            return;
+        }
+
+        ApplyColorToRenderer(renderer, color);
+        renderer.enabled = true;
+    }
+
+    private static Material CreateHighlightMaterial()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Unlit/Color");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Sprites/Default");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        if (shader == null)
+        {
+            return null;
+        }
+
+        Material material = new Material(shader);
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", Color.clear);
+        }
+        else if (material.HasProperty("_Color"))
+        {
+            material.color = Color.clear;
+        }
+
+        ConfigureTransparentMaterial(material);
+        return material;
     }
 
     private static void ApplyColorToRenderer(Renderer renderer, Color color)

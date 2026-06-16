@@ -9,6 +9,11 @@ namespace Sources.Hud
 {
     public class GameplayHUDController : MonoBehaviour
     {
+        private const float ArBottomBarWithControlsMinY = 0.165f;
+        private const float ArBottomBarWithControlsMaxY = 0.295f;
+        private const float ArBottomBarCollapsedMinY = 0f;
+        private const float ArBottomBarCollapsedMaxY = 0.14f;
+
         [Header("UI Elements")]
         [SerializeField] private TMP_Text playerTimerText;
         [SerializeField] private TMP_Text opponentTimerText;
@@ -38,15 +43,32 @@ namespace Sources.Hud
         private Button _arToggleButton;
         private TMP_Text _arToggleButtonLabel;
         private TMP_Text _arAvailabilityText;
+
+        private GameObject _arHudRoot;
+        private GameObject _arTopBar;
+        private GameObject _arBottomBar;
+        private RectTransform _arBottomBarRect;
+        private TMP_Text _arOpponentTimerText;
+        private TMP_Text _arPlayerTimerText;
+        private TMP_Text _arTurnIndicatorText;
+        private RectTransform _arWhiteCaptureContainer;
+        private RectTransform _arBlackCaptureContainer;
         private GameObject _arControlsPanel;
+        private GameObject _arControlsToggleRoot;
+        private bool _arControlsVisible = true;
+
         private ChessViewModeController _viewModeController;
+        private CapturedPiecesController _capturedPiecesController;
 
         public void SetLocalPlayerIsWhite(bool value)
         {
             isPlayerWhite = value;
+            ApplyARCapturePlacement();
+
             if (GameStateManager.Instance != null)
             {
                 UpdateTurnIndicator(GameStateManager.Instance.IsWhiteTurn);
+                UpdateTimers(GameStateManager.Instance);
             }
         }
 
@@ -63,10 +85,21 @@ namespace Sources.Hud
                 _viewModeController.StateChanged += HandleViewModeStateChanged;
             }
 
+            _capturedPiecesController = GetComponent<CapturedPiecesController>();
+            if (_capturedPiecesController == null)
+            {
+                _capturedPiecesController = FindAnyObjectByType<CapturedPiecesController>();
+            }
+
             BuildInGameMenu();
 
             bool isWhiteTurn = GameStateManager.Instance == null || GameStateManager.Instance.IsWhiteTurn;
             UpdateTurnIndicator(isWhiteTurn);
+            if (GameStateManager.Instance != null)
+            {
+                UpdateTimers(GameStateManager.Instance);
+            }
+
             RefreshARUiState();
         }
 
@@ -112,11 +145,6 @@ namespace Sources.Hud
                 UpdateTimers(gsm);
             }
 
-            if (_menuButtonRoot != null)
-            {
-                _menuButtonRoot.SetActive(true);
-            }
-
             if (_exitDialogOpen)
             {
                 SetExitDialogVisible(false);
@@ -127,10 +155,9 @@ namespace Sources.Hud
 
         private void HandleGameOver(GameResult _)
         {
-            if (_menuButtonRoot != null)
-            {
-                _menuButtonRoot.SetActive(false);
-            }
+            SetTwoDMatchHudVisible(false);
+            SetMainControlsVisible(false);
+            SetARHudVisible(false);
 
             if (_exitDialogOpen)
             {
@@ -150,20 +177,29 @@ namespace Sources.Hud
 
         private void UpdateTurnIndicator(bool isWhiteTurn)
         {
-            if (turnIndicatorText == null)
-            {
-                return;
-            }
-
+            string label;
+            Color color;
             if (isWhiteTurn == isPlayerWhite)
             {
-                turnIndicatorText.text = "Your turn";
-                turnIndicatorText.color = playerTurnColor;
+                label = "Your turn";
+                color = playerTurnColor;
             }
             else
             {
-                turnIndicatorText.text = "Opponent's turn";
-                turnIndicatorText.color = opponentTurnColor;
+                label = "Opponent's turn";
+                color = opponentTurnColor;
+            }
+
+            if (turnIndicatorText != null)
+            {
+                turnIndicatorText.text = label;
+                turnIndicatorText.color = color;
+            }
+
+            if (_arTurnIndicatorText != null)
+            {
+                _arTurnIndicatorText.text = label;
+                _arTurnIndicatorText.color = color;
             }
         }
 
@@ -171,15 +207,27 @@ namespace Sources.Hud
         {
             float playerTime = isPlayerWhite ? gsm.WhiteTimeRemaining : gsm.BlackTimeRemaining;
             float opponentTime = isPlayerWhite ? gsm.BlackTimeRemaining : gsm.WhiteTimeRemaining;
+            string playerTimeText = FormatTime(playerTime);
+            string opponentTimeText = FormatTime(opponentTime);
 
             if (playerTimerText != null)
             {
-                playerTimerText.text = FormatTime(playerTime);
+                playerTimerText.text = playerTimeText;
             }
 
             if (opponentTimerText != null)
             {
-                opponentTimerText.text = FormatTime(opponentTime);
+                opponentTimerText.text = opponentTimeText;
+            }
+
+            if (_arPlayerTimerText != null)
+            {
+                _arPlayerTimerText.text = playerTimeText;
+            }
+
+            if (_arOpponentTimerText != null)
+            {
+                _arOpponentTimerText.text = opponentTimeText;
             }
         }
 
@@ -240,8 +288,94 @@ namespace Sources.Hud
                 FontStyle.Normal,
                 TextAnchor.MiddleLeft);
 
-            BuildARControlsPanel(canvas.transform);
+            BuildARHud(canvas.transform);
             BuildExitDialog(canvas.transform);
+        }
+
+        private void BuildARHud(Transform parent)
+        {
+            _arHudRoot = new GameObject("ARMatchHud", typeof(RectTransform));
+            _arHudRoot.transform.SetParent(parent, false);
+            StretchFull(_arHudRoot.GetComponent<RectTransform>());
+
+            Color arBarColor = new Color(menuPanelColor.r, menuPanelColor.g, menuPanelColor.b, 0.82f);
+            _arTopBar = MakeImage(
+                "ARTopBar",
+                _arHudRoot.transform,
+                arBarColor,
+                new Vector2(0f, 0.875f),
+                Vector2.one,
+                menuPanelSprite);
+
+            _arBottomBar = MakeImage(
+                "ARBottomBar",
+                _arHudRoot.transform,
+                arBarColor,
+                new Vector2(0f, ArBottomBarWithControlsMinY),
+                new Vector2(1f, ArBottomBarWithControlsMaxY),
+                menuPanelSprite);
+            _arBottomBarRect = _arBottomBar.GetComponent<RectTransform>();
+
+            _arOpponentTimerText = MakeText(
+                "AROpponentTimer",
+                _arTopBar.transform,
+                new Vector2(0.43f, 0.12f),
+                new Vector2(0.56f, 0.88f),
+                "00:00",
+                34,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter);
+
+            MakeButton(
+                "ARReturn2DTop",
+                _arTopBar.transform,
+                new Vector2(0.58f, 0.18f),
+                new Vector2(0.78f, 0.86f),
+                "Return to 2D",
+                menuSecondaryButtonColor,
+                menuTextColor,
+                26,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.ExitARMode());
+
+            MakeButton(
+                "ARMenuTop",
+                _arTopBar.transform,
+                new Vector2(0.80f, 0.18f),
+                new Vector2(0.97f, 0.86f),
+                "Menu",
+                menuPrimaryButtonColor,
+                menuTextColor,
+                30,
+                menuButtonSprite).onClick.AddListener(HandleExitIntent);
+
+            _arTurnIndicatorText = MakeText(
+                "ARTurnIndicator",
+                _arBottomBar.transform,
+                new Vector2(0.04f, 0.12f),
+                new Vector2(0.24f, 0.88f),
+                "Your turn",
+                34,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft);
+
+            _arPlayerTimerText = MakeText(
+                "ARPlayerTimer",
+                _arBottomBar.transform,
+                new Vector2(0.78f, 0.12f),
+                new Vector2(0.96f, 0.88f),
+                "00:00",
+                34,
+                FontStyle.Bold,
+                TextAnchor.MiddleRight);
+
+            _arWhiteCaptureContainer = MakeRectTransform("ARWhiteCaptureContainer", _arBottomBar.transform);
+            _arBlackCaptureContainer = MakeRectTransform("ARBlackCaptureContainer", _arTopBar.transform);
+            _capturedPiecesController?.RegisterAdditionalContainers(_arWhiteCaptureContainer, _arBlackCaptureContainer);
+            ApplyARCapturePlacement();
+
+            BuildARControlsPanel(_arHudRoot.transform);
+            SetARControlsVisible(true);
+            _arHudRoot.SetActive(false);
         }
 
         private void BuildARControlsPanel(Transform parent)
@@ -250,77 +384,87 @@ namespace Sources.Hud
                 "ARControlsPanel",
                 parent,
                 new Color(menuPanelColor.r, menuPanelColor.g, menuPanelColor.b, 0.88f),
-                new Vector2(0.10f, 0.02f),
-                new Vector2(0.90f, 0.16f),
+                new Vector2(0.04f, 0f),
+                new Vector2(0.96f, 0.15f),
                 menuPanelSprite);
 
             MakeButton(
                 "ARReposition",
                 _arControlsPanel.transform,
                 new Vector2(0.02f, 0.12f),
-                new Vector2(0.18f, 0.88f),
+                new Vector2(0.17f, 0.88f),
                 "Reposition",
                 menuPrimaryButtonColor,
                 menuTextColor,
-                22,
+                20,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RepositionBoard());
 
             MakeButton(
                 "ARRotateLeft",
                 _arControlsPanel.transform,
-                new Vector2(0.20f, 0.12f),
-                new Vector2(0.34f, 0.88f),
+                new Vector2(0.185f, 0.12f),
+                new Vector2(0.32f, 0.88f),
                 "Rotate -",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                22,
+                20,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(-15f));
 
             MakeButton(
                 "ARRotateRight",
                 _arControlsPanel.transform,
-                new Vector2(0.36f, 0.12f),
-                new Vector2(0.50f, 0.88f),
+                new Vector2(0.335f, 0.12f),
+                new Vector2(0.47f, 0.88f),
                 "Rotate +",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                22,
+                20,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(15f));
 
             MakeButton(
                 "ARScaleDown",
                 _arControlsPanel.transform,
-                new Vector2(0.52f, 0.12f),
-                new Vector2(0.64f, 0.88f),
+                new Vector2(0.485f, 0.12f),
+                new Vector2(0.62f, 0.88f),
                 "Scale -",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                22,
+                20,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(-0.1f));
 
             MakeButton(
                 "ARScaleUp",
                 _arControlsPanel.transform,
-                new Vector2(0.66f, 0.12f),
-                new Vector2(0.78f, 0.88f),
+                new Vector2(0.635f, 0.12f),
+                new Vector2(0.77f, 0.88f),
                 "Scale +",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                22,
+                20,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(0.1f));
 
             MakeButton(
-                "ARReturn2D",
+                "ARHideControls",
                 _arControlsPanel.transform,
-                new Vector2(0.80f, 0.12f),
+                new Vector2(0.785f, 0.12f),
                 new Vector2(0.98f, 0.88f),
-                "Return to 2D",
+                "Hide",
                 menuPrimaryButtonColor,
                 menuTextColor,
                 22,
-                menuButtonSprite).onClick.AddListener(() => _viewModeController?.ExitARMode());
+                menuButtonSprite).onClick.AddListener(() => SetARControlsVisible(false));
 
-            _arControlsPanel.SetActive(false);
+            _arControlsToggleRoot = MakeButton(
+                "ARShowControlsButton",
+                _arBottomBar.transform,
+                new Vector2(0.60f, 0.16f),
+                new Vector2(0.76f, 0.84f),
+                "Controls",
+                menuPrimaryButtonColor,
+                menuTextColor,
+                22,
+                menuButtonSprite).gameObject;
+            _arControlsToggleRoot.GetComponent<Button>().onClick.AddListener(() => SetARControlsVisible(true));
         }
 
         private void BuildExitDialog(Transform parent)
@@ -416,7 +560,7 @@ namespace Sources.Hud
             {
                 SetBoardInputActive(false);
             }
-            else if (restoreInput && (GameStateManager.Instance == null || GameStateManager.Instance.Result == GameResult.Ongoing))
+            else if (restoreInput && IsGameOngoing())
             {
                 SetBoardInputActive(true);
             }
@@ -447,6 +591,13 @@ namespace Sources.Hud
                 return;
             }
 
+            bool isARModeActive = _viewModeController.IsARModeActive;
+            bool showGameplayHud = IsGameOngoing();
+            bool showARHud = isARModeActive && showGameplayHud;
+
+            SetTwoDMatchHudVisible(!isARModeActive && showGameplayHud);
+            SetMainControlsVisible(!isARModeActive && showGameplayHud);
+
             if (_arToggleButton != null)
             {
                 _arToggleButton.interactable = !_viewModeController.IsCheckingAvailability && _viewModeController.CanToggleAR;
@@ -454,13 +605,15 @@ namespace Sources.Hud
 
             if (_arToggleButtonLabel != null)
             {
-                _arToggleButtonLabel.text = _viewModeController.IsARModeActive ? "Return to 2D" : "Enter AR";
+                _arToggleButtonLabel.text = "Enter AR";
             }
 
-            if (_arControlsPanel != null)
+            if (_arHudRoot != null && showARHud && !_arHudRoot.activeSelf)
             {
-                _arControlsPanel.SetActive(_viewModeController.IsARModeActive);
+                _arControlsVisible = true;
             }
+
+            SetARHudVisible(showARHud);
 
             if (_arAvailabilityText != null)
             {
@@ -468,7 +621,7 @@ namespace Sources.Hud
                 {
                     _arAvailabilityText.text = "Checking AR support...";
                 }
-                else if (!_viewModeController.IsARModeActive && !_viewModeController.IsARSupported)
+                else if (!isARModeActive && !_viewModeController.IsARSupported)
                 {
                     _arAvailabilityText.text = _viewModeController.AvailabilityMessage;
                 }
@@ -477,6 +630,103 @@ namespace Sources.Hud
                     _arAvailabilityText.text = string.Empty;
                 }
             }
+        }
+
+        private void SetTwoDMatchHudVisible(bool visible)
+        {
+            SetTextVisible(playerTimerText, visible);
+            SetTextVisible(opponentTimerText, visible);
+            SetTextVisible(turnIndicatorText, visible);
+            _capturedPiecesController?.SetPrimaryContainersVisible(visible);
+        }
+
+        private void SetMainControlsVisible(bool visible)
+        {
+            if (_arToggleButton != null)
+            {
+                _arToggleButton.gameObject.SetActive(visible);
+            }
+
+            if (_menuButtonRoot != null)
+            {
+                _menuButtonRoot.SetActive(visible);
+            }
+        }
+
+        private void SetARHudVisible(bool visible)
+        {
+            if (_arHudRoot != null)
+            {
+                _arHudRoot.SetActive(visible);
+            }
+
+            if (visible)
+            {
+                ApplyARBottomBarLayout();
+                ApplyARCapturePlacement();
+            }
+
+            SetARControlsObjectsVisible(visible);
+        }
+
+        private void SetARControlsVisible(bool visible)
+        {
+            _arControlsVisible = visible;
+            ApplyARBottomBarLayout();
+            SetARControlsObjectsVisible(_arHudRoot != null && _arHudRoot.activeSelf);
+        }
+
+        private void SetARControlsObjectsVisible(bool hudVisible)
+        {
+            if (_arControlsPanel != null)
+            {
+                _arControlsPanel.SetActive(hudVisible && _arControlsVisible);
+            }
+
+            if (_arControlsToggleRoot != null)
+            {
+                _arControlsToggleRoot.SetActive(hudVisible && !_arControlsVisible);
+            }
+        }
+
+        private void ApplyARBottomBarLayout()
+        {
+            if (_arBottomBarRect == null)
+            {
+                return;
+            }
+
+            _arBottomBarRect.anchorMin = new Vector2(
+                0f,
+                _arControlsVisible ? ArBottomBarWithControlsMinY : ArBottomBarCollapsedMinY);
+            _arBottomBarRect.anchorMax = new Vector2(
+                1f,
+                _arControlsVisible ? ArBottomBarWithControlsMaxY : ArBottomBarCollapsedMaxY);
+            _arBottomBarRect.offsetMin = Vector2.zero;
+            _arBottomBarRect.offsetMax = Vector2.zero;
+        }
+
+        private void ApplyARCapturePlacement()
+        {
+            if (_arWhiteCaptureContainer == null || _arBlackCaptureContainer == null ||
+                _arTopBar == null || _arBottomBar == null)
+            {
+                return;
+            }
+
+            RectTransform playerCaptureContainer = isPlayerWhite ? _arWhiteCaptureContainer : _arBlackCaptureContainer;
+            RectTransform opponentCaptureContainer = isPlayerWhite ? _arBlackCaptureContainer : _arWhiteCaptureContainer;
+
+            PlaceCaptureContainer(
+                playerCaptureContainer,
+                _arBottomBar.transform,
+                new Vector2(0.26f, 0.18f),
+                new Vector2(0.58f, 0.82f));
+            PlaceCaptureContainer(
+                opponentCaptureContainer,
+                _arTopBar.transform,
+                new Vector2(0.04f, 0.18f),
+                new Vector2(0.42f, 0.82f));
         }
 
         private string FormatTime(float timeInSeconds)
@@ -573,6 +823,13 @@ namespace Sources.Hud
             return button;
         }
 
+        private RectTransform MakeRectTransform(string name, Transform parent)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            return go.GetComponent<RectTransform>();
+        }
+
         private TMP_FontAsset GetMenuFontAsset()
         {
             if (turnIndicatorText != null && turnIndicatorText.font != null)
@@ -591,6 +848,41 @@ namespace Sources.Hud
             }
 
             return TMP_Settings.defaultFontAsset;
+        }
+
+        private bool IsGameOngoing()
+        {
+            return GameStateManager.Instance == null || GameStateManager.Instance.Result == GameResult.Ongoing;
+        }
+
+        private static void SetTextVisible(TMP_Text text, bool visible)
+        {
+            if (text != null)
+            {
+                text.gameObject.SetActive(visible);
+            }
+        }
+
+        private static void StretchFull(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        private static void PlaceCaptureContainer(RectTransform rect, Transform parent, Vector2 anchorMin, Vector2 anchorMax)
+        {
+            if (rect.parent != parent)
+            {
+                rect.SetParent(parent, false);
+            }
+
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            rect.pivot = new Vector2(0.5f, 0.5f);
         }
 
         private static TextAlignmentOptions ConvertAlignment(TextAnchor alignment)

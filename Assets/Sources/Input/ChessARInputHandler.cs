@@ -7,7 +7,6 @@ using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
-using InputTouchPhase = UnityEngine.InputSystem.TouchPhase;
 #endif
 
 public class ChessARInputHandler : ChessBoardInputBase
@@ -76,6 +75,7 @@ public class ChessARInputHandler : ChessBoardInputBase
 
         if (!TryGetPointerState(out int pointerId, out Vector2 screenPosition, out PointerState pointerState))
         {
+            _activePointerId = -1;
             if (!HasPlacedBoard)
             {
                 UpdatePlacementPose(null);
@@ -86,6 +86,11 @@ public class ChessARInputHandler : ChessBoardInputBase
 
         if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(pointerId))
         {
+            if (pointerState == PointerState.Up && pointerId == _activePointerId)
+            {
+                _activePointerId = -1;
+            }
+
             return;
         }
 
@@ -102,6 +107,11 @@ public class ChessARInputHandler : ChessBoardInputBase
 
         if (pointerState == PointerState.Down)
         {
+            if (_activePointerId != -1)
+            {
+                return;
+            }
+
             if (TryGetSquare(screenPosition, out Vector2Int square))
             {
                 _activePointerId = pointerId;
@@ -669,21 +679,24 @@ public class ChessARInputHandler : ChessBoardInputBase
         Touchscreen touchscreen = Touchscreen.current;
         if (touchscreen != null)
         {
-            InputTouchPhase phase = touchscreen.primaryTouch.phase.ReadValue();
-            state = phase switch
-            {
-                InputTouchPhase.Began => PointerState.Down,
-                InputTouchPhase.Moved => PointerState.Held,
-                InputTouchPhase.Stationary => PointerState.Held,
-                InputTouchPhase.Ended => PointerState.Up,
-                InputTouchPhase.Canceled => PointerState.Up,
-                _ => PointerState.None
-            };
+            pointerId = touchscreen.primaryTouch.touchId.ReadValue();
+            position = touchscreen.primaryTouch.position.ReadValue();
 
-            if (state != PointerState.None)
+            if (touchscreen.primaryTouch.press.wasPressedThisFrame)
             {
-                pointerId = touchscreen.primaryTouch.touchId.ReadValue();
-                position = touchscreen.primaryTouch.position.ReadValue();
+                state = PointerState.Down;
+                return true;
+            }
+
+            if (touchscreen.primaryTouch.press.wasReleasedThisFrame)
+            {
+                state = PointerState.Up;
+                return true;
+            }
+
+            if (touchscreen.primaryTouch.press.isPressed)
+            {
+                state = PointerState.Held;
                 return true;
             }
         }

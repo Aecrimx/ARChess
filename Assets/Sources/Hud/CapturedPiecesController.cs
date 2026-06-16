@@ -13,6 +13,12 @@ namespace Sources.Hud
     // ─────────────────────────────────────────────────────────────────────────────
     public class CapturedPiecesController : MonoBehaviour
     {
+        private struct CaptureContainerPair
+        {
+            public RectTransform WhiteContainer;
+            public RectTransform BlackContainer;
+        }
+
         [Header("UI Containers")]
         [Tooltip("The RectTransform where Black pieces captured by White will be parented.")]
         [SerializeField] private RectTransform whiteCaptureContainer;
@@ -28,6 +34,8 @@ namespace Sources.Hud
         [SerializeField] private float pieceSize = 35f;
         [SerializeField] private float stackOffset = 12f;   // How much identical pieces overlap
         [SerializeField] private float groupSpacing = 40f;  // Gap between different piece types
+
+        private readonly List<CaptureContainerPair> _additionalContainers = new List<CaptureContainerPair>();
 
         private void Start()
         {
@@ -57,11 +65,53 @@ namespace Sources.Hud
 
             RedrawContainer(whiteCaptureContainer, GameStateManager.Instance.CapturedByWhite);
             RedrawContainer(blackCaptureContainer, GameStateManager.Instance.CapturedByBlack);
+
+            foreach (CaptureContainerPair pair in _additionalContainers)
+            {
+                RedrawContainer(pair.WhiteContainer, GameStateManager.Instance.CapturedByWhite);
+                RedrawContainer(pair.BlackContainer, GameStateManager.Instance.CapturedByBlack);
+            }
         }
 
         public void RefreshFromGameState()
         {
             RedrawAll();
+        }
+
+        public void RegisterAdditionalContainers(RectTransform whiteContainer, RectTransform blackContainer)
+        {
+            foreach (CaptureContainerPair pair in _additionalContainers)
+            {
+                if (pair.WhiteContainer == whiteContainer && pair.BlackContainer == blackContainer)
+                {
+                    return;
+                }
+            }
+
+            _additionalContainers.Add(new CaptureContainerPair
+            {
+                WhiteContainer = whiteContainer,
+                BlackContainer = blackContainer
+            });
+            RedrawAll();
+        }
+
+        public void SetPrimaryContainersVisible(bool visible)
+        {
+            if (whiteCaptureContainer != null)
+            {
+                whiteCaptureContainer.gameObject.SetActive(visible);
+            }
+
+            if (blackCaptureContainer != null)
+            {
+                blackCaptureContainer.gameObject.SetActive(visible);
+            }
+
+            if (visible)
+            {
+                RedrawAll();
+            }
         }
 
         private void RedrawContainer(RectTransform container, List<Piece> capturedPieces)
