@@ -15,6 +15,7 @@ using UnityEngine.SceneManagement;
 //  PANEL STACK:
 //  MainPanel       → Play vs AI | PvP | Settings
 //  PvpPanel        → Local PvP | LAN
+//  TimerSelectPanel → Timer picker + Start Game for local modes
 //  LanPanel        → Host Game | Join Game
 //  HostLobbyPanel  → Timer picker + Start Hosting + status label
 //  JoinLobbyPanel  → Discovered server list (ScrollRect) + Refresh
@@ -45,6 +46,7 @@ public class MainMenuController : MonoBehaviour
     // ── Panel references ──────────────────────────────────────────────────────
     private GameObject _mainPanel;
     private GameObject _pvpPanel;
+    private GameObject _timerSelectPanel;
     private GameObject _lanPanel;
     private GameObject _hostLobbyPanel;
     private GameObject _joinLobbyPanel;
@@ -53,7 +55,10 @@ public class MainMenuController : MonoBehaviour
     // ── Host lobby state ──────────────────────────────────────────────────────
     private Text   _hostStatusLabel;
     private Text   _selectedTimerLabel;
+    private Text   _modeTimerTitleLabel;
+    private Text   _modeTimerSelectedLabel;
     private string _selectedTimerPreset = "unlimited";   // PlayerPrefs value
+    private string _pendingLocalMode = "local2P";
     private readonly List<Button> _timerButtons = new List<Button>();
 
     // ── Join lobby state ──────────────────────────────────────────────────────
@@ -103,6 +108,7 @@ public class MainMenuController : MonoBehaviour
 
         BuildMainPanel(root);
         BuildPvpPanel(root);
+        BuildTimerSelectPanel(root);
         BuildLanPanel(root);
         BuildHostLobbyPanel(root);
         BuildJoinLobbyPanel(root);
@@ -176,6 +182,38 @@ public class MainMenuController : MonoBehaviour
                    "Back").onClick.AddListener(() => ShowPanel(_mainPanel));
     }
 
+    // ── Local mode timer panel ───────────────────────────────────────────────
+    private void BuildTimerSelectPanel(Transform root)
+    {
+        _timerSelectPanel = MakePanel("TimerSelectPanel", root);
+        var t = _timerSelectPanel.transform;
+
+        _modeTimerTitleLabel = MakeText("Title", t,
+                 new Vector2(0.05f, 0.80f), new Vector2(0.95f, 0.94f),
+                 "Choose Time Control", 75, FontStyle.Bold, titleColor, TextAnchor.MiddleCenter);
+
+        MakeText("TimerLabel", t,
+                 new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.78f),
+                 "Time Control:", 50, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+
+        BuildTimerPresetButtons(t, 0.56f, 0.67f);
+
+        _modeTimerSelectedLabel = MakeText("SelectedTimerLabel", t,
+                 new Vector2(0.05f, 0.46f), new Vector2(0.95f, 0.54f),
+                 "", 40, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+
+        MakeButton("BtnStartLocalMode", t,
+                   new Vector2(0.1f, 0.32f), new Vector2(0.9f, 0.45f),
+                   "Start Game").onClick.AddListener(OnStartSelectedLocalModeClicked);
+
+        MakeButton("BtnBack", t,
+                   new Vector2(0.1f, 0.15f), new Vector2(0.9f, 0.27f),
+                   "Back").onClick.AddListener(() =>
+        {
+            ShowPanel(_pendingLocalMode == "vsAI" ? _mainPanel : _pvpPanel);
+        });
+    }
+
     // ── LAN panel ─────────────────────────────────────────────────────────────
     private void BuildLanPanel(Transform root)
     {
@@ -216,25 +254,7 @@ public class MainMenuController : MonoBehaviour
                  new Vector2(0.05f, 0.52f), new Vector2(0.95f, 0.60f),
                  "", 40, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
 
-        // Timer preset buttons
-        string[] labels  = { "Unlimited", "1 min", "3 min", "5 min", "10 min", "30 min" };
-        string[] presets = { "unlimited", "1", "3", "5", "10", "30" };
-        float btnW = 1f / labels.Length;
-        for (int i = 0; i < labels.Length; i++)
-        {
-            int idx = i;
-            var timerButton = MakeButton($"BtnTimer{presets[i]}", t,
-                       new Vector2(i * btnW + 0.01f, 0.60f),
-                       new Vector2((i + 1) * btnW - 0.01f, 0.71f),
-                       labels[i]);
-            _timerButtons.Add(timerButton);
-            timerButton.onClick.AddListener(() =>
-            {
-                _selectedTimerPreset = presets[idx];
-                RefreshTimerSelectionUi();
-                Debug.Log($"[MainMenu] Timer preset: {_selectedTimerPreset}");
-            });
-        }
+        BuildTimerPresetButtons(t, 0.60f, 0.71f);
 
         RefreshTimerSelectionUi();
 
@@ -378,14 +398,30 @@ public class MainMenuController : MonoBehaviour
 
     private void OnVsAIClicked()
     {
-        PlayerPrefs.SetString("GameMode", "vsAI");
-        PlayerPrefs.Save();
-        SceneManager.LoadScene(gameSceneName);
+        ShowLocalTimerSelection("vsAI", "Play vs AI");
     }
 
     private void OnLocal2PClicked()
     {
-        PlayerPrefs.SetString("GameMode", "local2P");
+        ShowLocalTimerSelection("local2P", "Local PvP");
+    }
+
+    private void ShowLocalTimerSelection(string gameMode, string title)
+    {
+        _pendingLocalMode = gameMode;
+        _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", _selectedTimerPreset);
+
+        if (_modeTimerTitleLabel != null)
+            _modeTimerTitleLabel.text = $"{title} Time Control";
+
+        RefreshTimerSelectionUi();
+        ShowPanel(_timerSelectPanel);
+    }
+
+    private void OnStartSelectedLocalModeClicked()
+    {
+        PlayerPrefs.SetString("GameMode", _pendingLocalMode);
+        PlayerPrefs.SetString("TimerPreset", _selectedTimerPreset);
         PlayerPrefs.Save();
         SceneManager.LoadScene(gameSceneName);
     }
@@ -531,6 +567,7 @@ public class MainMenuController : MonoBehaviour
     {
         _mainPanel?.SetActive(false);
         _pvpPanel?.SetActive(false);
+        _timerSelectPanel?.SetActive(false);
         _lanPanel?.SetActive(false);
         _hostLobbyPanel?.SetActive(false);
         _joinLobbyPanel?.SetActive(false);
@@ -557,8 +594,11 @@ public class MainMenuController : MonoBehaviour
         if (_selectedTimerLabel != null)
             _selectedTimerLabel.text = $"Selected: {FormatTimerPreset(_selectedTimerPreset)}";
 
+        if (_modeTimerSelectedLabel != null)
+            _modeTimerSelectedLabel.text = $"Selected: {FormatTimerPreset(_selectedTimerPreset)}";
+
         string[] presets = { "unlimited", "1", "3", "5", "10", "30" };
-        for (int i = 0; i < _timerButtons.Count && i < presets.Length; i++)
+        for (int i = 0; i < _timerButtons.Count; i++)
         {
             var button = _timerButtons[i];
             if (button == null) continue;
@@ -566,9 +606,32 @@ public class MainMenuController : MonoBehaviour
             var image = button.GetComponent<Image>();
             if (image == null) continue;
 
-            image.color = presets[i] == _selectedTimerPreset
+            image.color = presets[i % presets.Length] == _selectedTimerPreset
                 ? buttonHoverColor
                 : buttonColor;
+        }
+    }
+
+    private void BuildTimerPresetButtons(Transform parent, float yMin, float yMax)
+    {
+        string[] labels  = { "Unlimited", "1 min", "3 min", "5 min", "10 min", "30 min" };
+        string[] presets = { "unlimited", "1", "3", "5", "10", "30" };
+        float btnW = 1f / labels.Length;
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            int idx = i;
+            var timerButton = MakeButton($"BtnTimer{presets[i]}", parent,
+                       new Vector2(i * btnW + 0.01f, yMin),
+                       new Vector2((i + 1) * btnW - 0.01f, yMax),
+                       labels[i]);
+            _timerButtons.Add(timerButton);
+            timerButton.onClick.AddListener(() =>
+            {
+                _selectedTimerPreset = presets[idx];
+                RefreshTimerSelectionUi();
+                Debug.Log($"[MainMenu] Timer preset: {_selectedTimerPreset}");
+            });
         }
     }
 

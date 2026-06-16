@@ -327,17 +327,6 @@ namespace Sources.Hud
                 TextAnchor.MiddleCenter);
 
             MakeButton(
-                "ARReturn2DTop",
-                _arTopBar.transform,
-                new Vector2(0.58f, 0.18f),
-                new Vector2(0.78f, 0.86f),
-                "Return to 2D",
-                menuSecondaryButtonColor,
-                menuTextColor,
-                26,
-                menuButtonSprite).onClick.AddListener(() => _viewModeController?.ExitARMode());
-
-            MakeButton(
                 "ARMenuTop",
                 _arTopBar.transform,
                 new Vector2(0.80f, 0.18f),
@@ -361,8 +350,8 @@ namespace Sources.Hud
             _arPlayerTimerText = MakeText(
                 "ARPlayerTimer",
                 _arBottomBar.transform,
-                new Vector2(0.78f, 0.12f),
-                new Vector2(0.96f, 0.88f),
+                new Vector2(0.58f, 0.12f),
+                new Vector2(0.76f, 0.88f),
                 "00:00",
                 34,
                 FontStyle.Bold,
@@ -392,61 +381,72 @@ namespace Sources.Hud
                 "ARReposition",
                 _arControlsPanel.transform,
                 new Vector2(0.02f, 0.12f),
-                new Vector2(0.17f, 0.88f),
+                new Vector2(0.145f, 0.88f),
                 "Reposition",
                 menuPrimaryButtonColor,
                 menuTextColor,
-                20,
+                18,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RepositionBoard());
 
             MakeButton(
                 "ARRotateLeft",
                 _arControlsPanel.transform,
-                new Vector2(0.185f, 0.12f),
-                new Vector2(0.32f, 0.88f),
+                new Vector2(0.155f, 0.12f),
+                new Vector2(0.28f, 0.88f),
                 "Rotate -",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                20,
+                18,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(-15f));
 
             MakeButton(
                 "ARRotateRight",
                 _arControlsPanel.transform,
-                new Vector2(0.335f, 0.12f),
-                new Vector2(0.47f, 0.88f),
+                new Vector2(0.29f, 0.12f),
+                new Vector2(0.415f, 0.88f),
                 "Rotate +",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                20,
+                18,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.RotateBoard(15f));
 
             MakeButton(
                 "ARScaleDown",
                 _arControlsPanel.transform,
-                new Vector2(0.485f, 0.12f),
-                new Vector2(0.62f, 0.88f),
+                new Vector2(0.425f, 0.12f),
+                new Vector2(0.55f, 0.88f),
                 "Scale -",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                20,
+                18,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(-0.1f));
 
             MakeButton(
                 "ARScaleUp",
                 _arControlsPanel.transform,
-                new Vector2(0.635f, 0.12f),
-                new Vector2(0.77f, 0.88f),
+                new Vector2(0.56f, 0.12f),
+                new Vector2(0.685f, 0.88f),
                 "Scale +",
                 menuSecondaryButtonColor,
                 menuTextColor,
-                20,
+                18,
                 menuButtonSprite).onClick.AddListener(() => _viewModeController?.GetARInput()?.AdjustBoardScale(0.1f));
+
+            MakeButton(
+                "ARReturn2DControls",
+                _arControlsPanel.transform,
+                new Vector2(0.695f, 0.12f),
+                new Vector2(0.84f, 0.88f),
+                "Return to 2D",
+                menuPrimaryButtonColor,
+                menuTextColor,
+                16,
+                menuButtonSprite).onClick.AddListener(() => _viewModeController?.ExitARMode());
 
             MakeButton(
                 "ARHideControls",
                 _arControlsPanel.transform,
-                new Vector2(0.785f, 0.12f),
+                new Vector2(0.85f, 0.12f),
                 new Vector2(0.98f, 0.88f),
                 "Hide",
                 menuPrimaryButtonColor,
@@ -457,8 +457,8 @@ namespace Sources.Hud
             _arControlsToggleRoot = MakeButton(
                 "ARShowControlsButton",
                 _arBottomBar.transform,
-                new Vector2(0.60f, 0.16f),
-                new Vector2(0.76f, 0.84f),
+                new Vector2(0.78f, 0.16f),
+                new Vector2(0.97f, 0.84f),
                 "Controls",
                 menuPrimaryButtonColor,
                 menuTextColor,
