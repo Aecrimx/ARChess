@@ -50,6 +50,7 @@ namespace Sources.Hud
         private RectTransform _arBottomBarRect;
         private TMP_Text _arOpponentTimerText;
         private TMP_Text _arPlayerTimerText;
+        private RectTransform _arPlayerTimerRect;
         private TMP_Text _arTurnIndicatorText;
         private RectTransform _arWhiteCaptureContainer;
         private RectTransform _arBlackCaptureContainer;
@@ -319,12 +320,12 @@ namespace Sources.Hud
             _arOpponentTimerText = MakeText(
                 "AROpponentTimer",
                 _arTopBar.transform,
-                new Vector2(0.43f, 0.12f),
-                new Vector2(0.56f, 0.88f),
+                new Vector2(0.60f, 0.12f),
+                new Vector2(0.78f, 0.88f),
                 "00:00",
                 34,
                 FontStyle.Bold,
-                TextAnchor.MiddleCenter);
+                TextAnchor.MiddleRight);
 
             MakeButton(
                 "ARMenuTop",
@@ -356,6 +357,7 @@ namespace Sources.Hud
                 34,
                 FontStyle.Bold,
                 TextAnchor.MiddleRight);
+            _arPlayerTimerRect = _arPlayerTimerText.GetComponent<RectTransform>();
 
             _arWhiteCaptureContainer = MakeRectTransform("ARWhiteCaptureContainer", _arBottomBar.transform);
             _arBlackCaptureContainer = MakeRectTransform("ARBlackCaptureContainer", _arTopBar.transform);
@@ -704,6 +706,18 @@ namespace Sources.Hud
                 _arControlsVisible ? ArBottomBarWithControlsMaxY : ArBottomBarCollapsedMaxY);
             _arBottomBarRect.offsetMin = Vector2.zero;
             _arBottomBarRect.offsetMax = Vector2.zero;
+
+            if (_arPlayerTimerRect != null)
+            {
+                _arPlayerTimerRect.anchorMin = new Vector2(
+                    _arControlsVisible ? 0.78f : 0.58f,
+                    0.12f);
+                _arPlayerTimerRect.anchorMax = new Vector2(
+                    _arControlsVisible ? 0.96f : 0.76f,
+                    0.88f);
+                _arPlayerTimerRect.offsetMin = Vector2.zero;
+                _arPlayerTimerRect.offsetMax = Vector2.zero;
+            }
         }
 
         private void ApplyARCapturePlacement()
