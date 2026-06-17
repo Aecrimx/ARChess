@@ -13,22 +13,22 @@ MonoBehaviour:
   m_Name: Readme
   m_EditorClassIdentifier: 
   icon: {fileID: 2800000, guid: 727a75301c3d24613a3ebcec4a24c2c8, type: 3}
-  title: URP Empty Template
+  title: ARChess
   sections:
-  - heading: Welcome to the Universal Render Pipeline
-    text: This template includes the settings and assets you need to start creating with the Universal Render Pipeline.
-    linkText: 
+  - heading: Project overview
+    text: ARChess is a Unity 6 chess client with local PvP, LAN play, server-backed AI moves, live coaching, post-game review, and Android AR mode.
+    linkText:
     url:
-  - heading: URP Documentation
-    text:
-    linkText: Read more about URP
-    url: https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest
-  - heading: Forums
-    text:
-    linkText: Get answers and support
-    url: https://forum.unity.com/forums/universal-render-pipeline.383/
-  - heading: Report bugs
-    text:
-    linkText: Submit a report
-    url: https://unity3d.com/unity/qa/bug-reporting
+  - heading: Important scenes
+    text: Start from Assets/Scenes/MainMenu.unity. ChessScene.unity contains the persistent game manager, 2D board canvas, HUD, timers, promotion UI, and game-over UI.
+    linkText:
+    url:
+  - heading: Source folders
+    text: Game code lives under Assets/Sources. The current AI service lives under server. The local_server folder is an older FastAPI prototype kept for reference.
+    linkText:
+    url:
+  - heading: Documentation
+    text: See README.md and docs for architecture, class diagrams, LAN sequences, scene hierarchy, color theme, setup, and test notes.
+    linkText: Open README
+    url: README.md
   loadedLayout: 1

@@ -1,160 +1,161 @@
 # ARChess
----
-ARChess is a Unity mobile game that lets you play chess both in 2D and in 3D using AR technologies, while also offering AI-powered coaching for your matches.
 
-## Overview & Features
+ARChess is a Unity 6 mobile chess project with four play flows:
 
-- Play matches versus Stockfish, locally on the same phone versus another player or over a LAN
-- Switch in-game from 2D mode to AR mode
-- Get in-game feedback when playing against Stockfish or post-match reviews powered by Stockfish and Gemini.
+- Play against the server-backed Stockfish opponent.
+- Play local PvP on one device.
+- Host or join a two-player LAN match through Mirror discovery.
+- Switch an active match from the 2D board into Android AR mode.
 
-## Backlog
-To develop the game, my colleague and I used Jira to efficiently track individual tasks and to structure the work each person has to do.
+The Unity client owns the board state, input, rendering, timers, LAN flow, and HUD. The Python service owns Stockfish-backed AI moves plus Gemini-powered coaching and post-game review.
 
-### Kanban Examples
-- [x] Pawn promotion, check alerts & end-game dialogs
-- [x] 3D chess piece & board models
-- [x] AR board placement & world anchoring
+## Current Feature Set
 
-## Architecture
+- Full local rules through `GameStateManager`: legal move generation, check/checkmate, stalemate, castling, en passant, promotion, threefold repetition, the 50-move rule, captured pieces, and timed game results.
+- Main menu built in code with Play vs AI, Local PvP, LAN Host/Join, time controls, AI difficulty, player name, and coach personality settings.
+- Shared move interaction layer for both 2D and AR boards, including selection highlights, legal-move highlights, last-move highlights, check highlights, and promotion picking.
+- Runtime AR mode on supported Android devices using AR Foundation and ARCore. The game creates the AR session/origin at runtime, checks AR support, places the board on horizontal planes, anchors it when possible, and exposes reposition, rotate, and scale controls.
+- LAN multiplayer through Mirror with UDP discovery, explicit scene-ready startup, host-as-white assignment, authoritative server validation, client-side prediction with rollback, rematches, timer sync, and disconnect game-over handling.
+- AI service integration through `AiCoachClient` for `/ai-move`, `/analyze-move`, and `/review-game`.
+- FEN and UCI export through `ChessNotationExporter` for AI move requests and game reviews.
 
-The application is structured into the Unity Game Client and the AI Python Server. 
+## Repository Layout
 
-### Game Client Architecture (Unity)
-
-The client uses a modular architecture with a clear separation of concerns (Core Game State, Network, and Presentation layers):
-
-```mermaid
-flowchart TD
-    %% Unity Client
-    subgraph Core[Core Game State]
-        GSM[GameStateManager]
-        GM[GameModeManager]
-        Evts[GameEvents]
-    end
-
-    subgraph Network[Mirror Network Layer]
-        LNM[LanNetworkManager]
-        LD[LanDiscovery]
-        CNP[ChessNetworkProxy]
-    end
-
-    subgraph Presentation[Presentation & 2D UI]
-        R2D[Chess2DRenderer]
-        I2D[Chess2DInputHandler]
-        HUD[GameplayHUDController]
-        Menu[MainMenuController]
-    end
-
-    Menu -- "Configures mode & timer" --> GM
-    Menu -- "Starts Host/Client" --> LNM
-    LNM -- "Broadcasts/Discovers" --> LD
-    LNM -- "Spawns for each player" --> CNP
-    
-    I2D -- "Reads board" --> GSM
-    I2D -- "Offline: TryApplyMove()" --> GSM
-    I2D -- "Online: CmdRequestMove()" --> CNP
-    
-    CNP -- "Server: TryApplyMove()" --> GSM
-    CNP -- "Client: Sync moves" --> GSM
-    
-    GSM -- "Triggers" --> Evts
-    Evts -- "OnMoveMade" --> R2D
-    Evts -- "OnTurnChanged" --> HUD
-    
-    R2D -- "Exposes HitAreas" --> I2D
+```text
+Assets/Sources/GameState      Chess rules, snapshots, notation export, mode setup
+Assets/Sources/Input          Shared move interaction plus 2D and AR input adapters
+Assets/Sources/Rendering      2D renderer, AR renderer, runtime AR view controller
+Assets/Sources/Hud            Timers, captured pieces, promotion, AR HUD, game-over UI
+Assets/Sources/Menus          Runtime-built main menu and LAN lobby UI
+Assets/Sources/Network        Mirror LAN manager, player proxy, LAN discovery
+Assets/Sources/Ai             Unity client for AI move, live coach, and game review APIs
+Assets/Resources/ARModels     Runtime-loaded 3D board and piece models for AR
+Assets/Tests/EditMode         Unity edit-mode tests for FEN/UCI/review/AI move parsing
+server                        Current Python AI service, Azure Functions entry point, tests
+local_server                  Older local FastAPI prototype kept for reference
+docs                          Architecture, class, network, scene, and color documentation
 ```
 
-### Server Architecture (Python FastAPI)
+The binary report under `docs/Raport 1 MDS-3.pdf` is stored as a Git LFS object. Fetch LFS objects if you need the rendered PDF.
 
-The backend acts as an intermediary, querying Gemini for natural language analysis and utilizing Stockfish for precise move evaluation.
+## Unity Setup
 
-```mermaid
-flowchart LR
-    Unity[Unity Client] -->|FEN & Move History| FastAPI[Python Server]
-    FastAPI <-->|Tool Calling / Responses| Gemini[Gemini API]
-    FastAPI <-->|Position Evaluation| Stockfish[Stockfish Engine]
+Use Unity `6000.4.4f1`, matching `ProjectSettings/ProjectVersion.txt`.
+
+1. Install Git LFS before cloning or fetch LFS after cloning:
+
+   ```bash
+   git lfs install
+   git lfs pull
+   ```
+
+2. Open the repository root in Unity.
+3. Let Unity restore packages from `Packages/manifest.json`.
+4. Confirm the build scenes are:
+
+   ```text
+   Assets/Scenes/MainMenu.unity
+   Assets/Scenes/ChessScene.unity
+   ```
+
+5. For Android AR builds, use a device supported by Google Play Services for AR and keep ARCore/XR Plug-in Management packages installed.
+
+The client has a default AI endpoint URL in `AiCoachClient`. Function keys must not be committed; configure them locally through `PlayerPrefs` or your build/deployment process:
+
+```text
+AiCoachBaseUrl
+AiCoachFunctionKey
+CoachPersonality
+AiDifficulty
 ```
 
-- **Endpoints**:
-  - `POST /analyze-move`: Used during live games (e.g., 1vsAI coaching) to deliver real-time feedback based on the current board state and recent moves.
-  - `POST /review-game`: Called at the end of a match for a comprehensive full-match review.
-- **Workflow**:
-  1. The client sends the game state (FEN notation and move history) to the server.
-  2. The server calls the Gemini API with the positional context and AI Tool definitions.
-  3. When Gemini needs precise board evaluation, it invokes a defined Tool.
-  4. The server runs Stockfish, calculates the score/best move, and returns it to Gemini.
-  5. Gemini formulates readable, meaningful feedback.
-  6. The server forwards this feedback text back to the Unity client.
+## Python AI Service
 
-## AI Agents
-> [!NOTE]
-> **AI integration**
-> * We use `Gemini 3.1 Flash Lite` provided by two endpoints in our server for the game client to communicate with Google APIs.
-> * We chose that model as a balance between its generous rate limits and its strong performance in generating feedback for the player.
-> * Gemini's Python SDK provides an intuitive way of writing and defining tools for an AI Model, exchanging JSON objects for actual Python functions.
+The maintained service is `server/`. It can run as FastAPI locally or as an Azure Functions app.
 
-## Server & Game Setup
-For the game client to provide full coaching capabilities, the server must be actively running on the local network.
-
-### Prerequisites & Hosting
-
-To set up the Python server locally, execute the following commands in the terminal (ensure you are inside the `server/` directory or reference it properly):
+### Local FastAPI
 
 ```bash
-# 1. Create a Python virtual environment
+cd server
 python -m venv .venv
-
-# 2. Activate the virtual environment
-# On Linux / macOS:
 source .venv/bin/activate
-# On Windows (PowerShell):
-# .\.venv\Scripts\Activate.ps1
-
-# 3. Install required packages
 pip install -r requirements.txt
-
-# 4. Export your Gemini API Key
-export GEMINI_API_KEY="your_api_key_here"  # macOS/Linux
-# $env:GEMINI_API_KEY="your_api_key_here"  # Windows PowerShell
-
-# 5. Run the server
-uvicorn server:app --host 0.0.0.0 --port 8000
+export GEMINI_API_KEY="your_api_key_here"
+export STOCKFISH_PATH="/usr/bin/stockfish"
+python -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-> **Note**: For the AI component to work, make sure the Stockfish engine is installed on the host machine. By default, the server expects Stockfish at `/usr/bin/stockfish`, but you can adjust this path in `server.py` (`STOCKFISH_PATH`) as needed.
+On Windows PowerShell:
 
-**Testing the Server**:
-Ensure that port `8000` is open on your host machine. You can quickly verify the server is running by accessing the Swagger UI from any device on your local network:
-`http://<your-local-ip>:8000/docs`
+```powershell
+cd server
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+$env:GEMINI_API_KEY="your_api_key_here"
+$env:STOCKFISH_PATH="C:\path\to\stockfish.exe"
+python -m uvicorn server:app --host 0.0.0.0 --port 8000
+```
 
-### Play the game
+Open `http://127.0.0.1:8000/docs` for the generated FastAPI documentation.
 
-To build the game APK, use Unity 6 and install the required packages provided in `/Packages`. If you want to get the game straight away, use the generated `.apk` file from GitHub Actions.
+### Azure Functions
 
-> [!WARNING]
-> **AR Device Compatibility**
-> To use the AR features, please ensure your phone supports ARCore by checking the [official Google Play Services for AR supported devices list](https://developers.google.com/ar/devices).
+`server/function_app.py` exposes the same service logic as Azure Functions routes. Copy `server/local.settings.sample.json` to `server/local.settings.json`, set local values, then run the Functions host from `server/`.
 
-## Testing & CI/CD Pipeline
+The `server/Dockerfile` uses the Azure Functions Python 3.11 base image and installs Stockfish at `/usr/games/stockfish`.
 
-We use GitHub Actions workflows to verify code integrity and to generate Android packages if all tests are successful.
+### Environment Variables
 
-### Automated Tests
-1. **Unity Game Client** (`unity-ci.yml`)
-   - Uses GameCI to run **EditMode** and **PlayMode** tests for validating the client logic and components.
-   - On successful test runs for the `main` branch, the pipeline automatically builds the Android `.apk` file and uploads it as a build artifact.
+```text
+GEMINI_API_KEY          Required for real Gemini calls
+GEMINI_MODEL            Defaults to gemini-3.1-flash-lite
+STOCKFISH_PATH          Defaults to /usr/bin/stockfish in code
+STOCKFISH_DEPTH         Defaults to 15
+COACH_PERSONALITY       cocky or pleasant_coach
+MOCK_EXTERNALS          1 skips real Gemini and Stockfish in tests
+MOCK_STOCKFISH          1 mocks only Stockfish
+MOCK_ANALYZE_RESPONSE   Optional mocked analyze text
+MOCK_REVIEW_RESPONSE    Optional mocked review text
+```
 
-2. **Python Server** (`server-ci.yml`)
-   - Automatically sets up the Python environment and installs dependencies.
-   - Runs `ci_smoke_test.py` which mocks out external dependencies (Stockfish & Gemini) to test the server's HTTP endpoints (`/health`, `/analyze-move`, and `/review-game`) and ensures the API correctly handles payload parsing and responses.
-   - `test_server_local.py` is also available for integration testing the real AI responses on a local machine.
+### API Surface
 
-### Formal Verification
-Our verification relies on rigid structural architectures and strong typing rather than dedicated mathematical formal verification tools. By isolating the *Core Game State* from the *Network Layer* and validating incoming network commands (`TryApplyMove()`), we ensure that invalid moves and state transitions are structurally blocked. The server strictly establishes formal verification of payload boundaries through Python type hints and predefined FastAPI Pydantic models.
+- `GET /health` returns service status, mock flags, Stockfish path/depth, and Gemini model.
+- `POST /ai-move` accepts `{ "fen": "...", "difficulty": "easy|normal|hard" }` and returns a legal UCI move.
+- `POST /analyze-move` accepts `fen_before`, `fen_after`, `move_played`, `player_color`, `move_number`, and optional `coach_personality`; it returns short live feedback.
+- `POST /review-game` accepts `player_color` plus `moves_uci`, `pgn`, or `final_fen`; it returns a full game review.
 
-## Resources Used
+## Testing
 
--  **[Mirror](https://mirror-networking.com/)** — for LAN multiplayer
--  **[MagicaVoxel](https://ephtracy.github.io/)** — for 3D voxel modelling
--  **[ARCore](https://developers.google.com/ar)** — for powering the AR Mode
+Server checks:
+
+```bash
+cd server
+python ci_smoke_test.py
+pytest test_ai_service.py test_function_app.py
+pytest test_server_local.py -s
+```
+
+`ci_smoke_test.py` launches FastAPI in mock mode and verifies `/health`, `/analyze-move`, `/ai-move`, and `/review-game`. `test_server_local.py` is intentionally local-only because it can use real external services.
+
+Unity checks are defined in `.github/workflows/unity-ci.yml`:
+
+- GameCI runs edit-mode and play-mode test jobs for pushes and pull requests targeting `main` or `develop`.
+- Android builds run after tests on push events to those branches.
+- Current edit-mode coverage focuses on FEN export, UCI normalization, review request creation, and AI move parsing/application.
+
+## Documentation
+
+- `docs/arhitectura.md` - current Unity and AI-service architecture.
+- `docs/diagrame_clasa.md` - current class relationships.
+- `docs/secventa_network.md` - LAN startup and move sequence.
+- `docs/ierarhice_scene.md` - serialized scene hierarchy plus runtime-created objects.
+- `docs/tema_cromatica.md` - current UI, HUD, AR, and highlight colors.
+
+## Main Dependencies
+
+- Unity 6, URP, UGUI, Input System, XR Management, AR Foundation, and ARCore.
+- Mirror for LAN networking and discovery.
+- Python 3.11 service stack with FastAPI, Azure Functions, python-chess, Stockfish, and Google Gemini SDK.
+- GameCI for Unity tests/builds and GitHub Actions for server smoke tests.

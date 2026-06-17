@@ -1,34 +1,27 @@
-# setup pe local laptop
-# python -m venv .venv
-# source .venv/bin/activate
-# pip install -r requirements.txt
-# export GEMINI_API_KEY="cheie api aici" in terminal
-# # server rulat cu: uvicorn server:app --host 0.0.0.0 --port 8000
-
-# Legat de server, evident deschide port-ul 8000.
-# quick test de pe alt device pe aceiasi retea e sa verifici ca /docs endpoint-ul e accesibil
-# http://<ip>:8000/docs
-
-# ================Arhitectura==================
-
-# Client Unity -> Python FastAPI server -> Stockfish (local)
-#                           ||
-#                           \/
-#                        Gemini API
-
-
-#===============Server======================
-#Doua endppoint-uri
-# POST /analyze-move - poate fi called o adata la cateva miscari / timer intr-un joc live sau nu (1 vs AI coaching)
-# POST /review-game - poate fi called la finalul unui meci pentru un full match review.
-
-# Tool flow
-# 1. Client trimite game state (notatie FEN adica move history) la server
-# 2. Server cheama API gemini cu pozitii si definitii tools
-# 3. Gemini decide ca trebuie sa evalueze o pozitie si da call la tool
-# 4. Server-ul ruleaza Stockfish, returneaza score/best move la Gemini
-# 5. Gemini genereaza feedback
-# 6. Server-ul trimite text inapoi la client-ul Unity.
+# Legacy local prototype.
+#
+# The maintained AI service lives in ../server and exposes /health, /ai-move,
+# /analyze-move, and /review-game through both FastAPI and Azure Functions.
+# This file is kept as a lightweight FastAPI reference for the older
+# analyze/review-only workflow.
+#
+# Local setup:
+#   python -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#   export GEMINI_API_KEY="your api key"
+#   uvicorn server:app --host 0.0.0.0 --port 8000
+#
+# Open http://<host-ip>:8000/docs from another device on the same network to
+# verify the service is reachable.
+#
+# Legacy flow:
+#   Unity client -> FastAPI -> Stockfish tool functions -> Gemini -> Unity text
+#
+# Legacy endpoints in this file:
+#   GET  /health
+#   POST /analyze-move
+#   POST /review-game
 
 
 import os

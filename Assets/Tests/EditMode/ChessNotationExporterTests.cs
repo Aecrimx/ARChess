@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
@@ -105,3 +106,4 @@ public class ChessNotationExporterTests
         Assert.AreEqual(Piece.BlackPawn, _gsm.Board[4, 4]);
     }
 }
+#endif

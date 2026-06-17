@@ -1,59 +1,128 @@
-# Arhitectura AR Chess
+# ARChess Architecture
 
-Această diagramă ilustrează arhitectura de nivel înalt a aplicației AR Chess, arătând modul în care componentele majore interacționează între ele.
+This document reflects the current repository structure. The application is split into a Unity game client and a Python AI service. The Unity client owns gameplay state and presentation; the service owns Stockfish/Gemini work.
 
+## Unity Client
 
 ```mermaid
 flowchart TD
-    %% Core Game State Layer
-    subgraph Core[Stare Joc & Domeniu]
-        GSM[GameStateManager]
-        GM[GameModeManager]
-        Evts[GameEvents]
+    subgraph Menu["Main menu and setup"]
+        MMC["MainMenuController"]
+        GMM["GameModeManager"]
+        Prefs["PlayerPrefs settings"]
     end
 
-    %% Network Layer
-    subgraph Network[Stratul de Rețea Mirror]
-        LNM[LanNetworkManager]
-        LD[LanDiscovery]
-        CNP[ChessNetworkProxy]
+    subgraph Core["Game state and rules"]
+        GSM["GameStateManager"]
+        GE["GameEvents"]
+        CNE["ChessNotationExporter"]
+        Clock["ChessClock"]
     end
 
-    %% Presentation & Input Layer
-    subgraph Presentation[Prezentare & Intrare 2D/UI]
-        R2D[Chess2DRenderer]
-        I2D[Chess2DInputHandler]
-        HUD[GameplayHUDController]
-        Menu[MainMenuController]
+    subgraph Input["Move interaction"]
+        MIC["ChessMoveInteractionController"]
+        I2D["Chess2DInputHandler"]
+        IAR["ChessARInputHandler"]
+        Promo["PawnPromotionPicker"]
     end
 
-    %% Relationships
-    Menu -- "Configurează modul & cronometrul" --> GM
-    Menu -- "Pornește Host/Client" --> LNM
-    LNM -- "Transmite/Descoperă" --> LD
-    LNM -- "Generează pentru fiecare jucător" --> CNP
-    
-    I2D -- "Citește tabla" --> GSM
-    I2D -- "Offline: TryApplyMove()" --> GSM
-    I2D -- "Online: CmdRequestMove()" --> CNP
-    
-    CNP -- "Server: TryApplyMove()" --> GSM
-    CNP -- "Client: Aplică mutările sincronizate" --> GSM
-    
-    GSM -- "Declanșează" --> Evts
-    Evts -- "OnMoveMade" --> R2D
-    Evts -- "OnTurnChanged" --> HUD
-    
-    R2D -- "Expune Zone de Contact (HitAreas)" --> I2D
+    subgraph View["Rendering and HUD"]
+        VMC["ChessViewModeController"]
+        R2D["Chess2DRenderer"]
+        RAR["ChessARRenderer"]
+        HUD["GameplayHUDController"]
+        Captures["CapturedPiecesController"]
+        GameOver["GameOverOverlay"]
+    end
+
+    subgraph LAN["LAN networking"]
+        LNM["LanNetworkManager"]
+        LD["LanDiscovery"]
+        CNP["ChessNetworkProxy"]
+    end
+
+    subgraph AI["AI client controllers"]
+        ACC["AiCoachClient"]
+        AIO["AiOpponentController"]
+        AMC["AiMoveCoachController"]
+        Review["AiGameReviewOverlay"]
+    end
+
+    MMC --> Prefs
+    Prefs --> GMM
+    GMM --> GSM
+    GMM --> Clock
+    GMM --> VMC
+    GMM --> AIO
+
+    I2D --> MIC
+    IAR --> MIC
+    MIC --> GSM
+    MIC --> Promo
+    MIC --> CNP
+
+    GSM --> GE
+    GE --> R2D
+    GE --> RAR
+    GE --> HUD
+    GE --> Captures
+    GE --> GameOver
+    GE --> AMC
+    GE --> AIO
+
+    VMC --> R2D
+    VMC --> RAR
+    VMC --> I2D
+    VMC --> IAR
+    HUD --> VMC
+
+    MMC --> LNM
+    MMC --> LD
+    LNM --> CNP
+    LD --> MMC
+    CNP --> GSM
+    CNP --> VMC
+    CNP --> Clock
+
+    GSM --> CNE
+    CNE --> ACC
+    AIO --> ACC
+    AMC --> ACC
+    Review --> ACC
 ```
 
-### Defalcarea componentelor
-1. **Domeniul de Bază (Core)**: 
-   - `GameStateManager` acționează ca unică sursă a adevărului pentru tabla de șah.
-   - `GameEvents` oferă o modalitate decuplată pentru actualizarea elementelor vizuale atunci când starea se schimbă.
-2. **Stratul de Rețea (Network)**: 
-   - Construit folosind framework-ul Mirror, `LanNetworkManager` inițializează serverul/clientul.
-   - `ChessNetworkProxy` rutează datele de intrare ale jucătorului către server și difuzează mutările verificate înapoi către clienți prin apeluri RPC.
-3. **Prezentare (Presentation)**: 
-   - `Chess2DRenderer` desenează interactiv sprite-urile pe baza `GameEvents`.
-   - `Chess2DInputHandler` traduce evenimentele de pe ecran (touch/click) în mutări de șah.
+### Responsibilities
+
+- `GameStateManager` is the single source of truth for chess state. It validates and applies legal moves, tracks timers, captures, move history, castling rights, en passant, repetition, and game-over state.
+- `GameEvents` decouples rules from rendering, HUD, AI coach, and game-over UI.
+- `ChessMoveInteractionController` centralizes board selection, highlighting, promotion, local move execution, and LAN routing. Both 2D and AR input adapters use it.
+- `ChessViewModeController` switches between 2D and AR. It creates the AR session, XROrigin, camera, raycast/plane/anchor managers, renderer, and AR input handler at runtime.
+- `ChessARRenderer` loads board and piece models from `Resources/ARModels`, builds square colliders/highlights, fits pieces to squares, and responds to game events.
+- `LanNetworkManager` owns Mirror connection lifecycle, two-player admission, scene transition, color assignment, rematch, timer sync, and disconnect results.
+- `ChessNetworkProxy` is the per-player Mirror bridge. It sends commands to the server, applies client RPC moves, handles target RPC startup, and rolls back rejected predicted moves.
+- `AiCoachClient` posts JSON to the configured AI endpoint for live feedback, AI moves, and post-game reviews.
+
+## Python AI Service
+
+```mermaid
+flowchart LR
+    Unity["Unity AiCoachClient"] -->|HTTP JSON| API["FastAPI server.py or Azure function_app.py"]
+    API --> Service["ai_service.py"]
+    Service -->|UCI/FEN validation| Chess["python-chess"]
+    Service -->|best move and evaluations| Stockfish["Stockfish engine"]
+    Service -->|tool-enabled prompts| Gemini["Google Gemini"]
+    Gemini -->|calls tools| Service
+    Service --> API
+    API --> Unity
+```
+
+The canonical service is `server/`. `server.py` exposes a local FastAPI app and `function_app.py` exposes the same handlers as Azure Functions. Both share models and business logic in `ai_service.py`.
+
+Current routes:
+
+- `GET /health`
+- `POST /ai-move`
+- `POST /analyze-move`
+- `POST /review-game`
+
+`local_server/` is an older local prototype kept for reference. It is not the source of truth for the current Unity client.

@@ -635,7 +635,7 @@ namespace Sources.Hud
 
             SetTwoDMatchHudVisible(!isARModeActive && showGameplayHud);
             SetMainControlsVisible(!isARModeActive && showGameplayHud);
-            SetAiCoachHudAllowed(!isARModeActive && showGameplayHud);
+            SetAiCoachHudAllowed(showGameplayHud);
 
             if (_arToggleButton != null)
             {
