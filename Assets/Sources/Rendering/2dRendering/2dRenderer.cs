@@ -1,97 +1,151 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Chess2DRenderer
-//
-//  RESPONSIBILITY: Drawing only. No input or selection logic.
-//
-//  SCENE SETUP:
-//  1. Canvas (Screen Space - Overlay, Scale With Screen Size)
-//     └── Board (RectTransform — square, centred, e.g. 640x640)
-//           └── BoardImage  ← assign your board PNG here in Inspector
-//  2. Attach this script to the Canvas (or Board) GameObject.
-//  3. Assign fields in Inspector:
-//       boardContainer  → the Board RectTransform
-//       boardImage      → the Image component showing the board PNG
-//       pieceSprites    → 12 sprites (see order below)
-//
-//  HOW THE LAYERS WORK:
-//  boardImage        — your PNG, sits at the bottom, visible
-//  _hitAreas[r,c]    — invisible transparent Images, raycastTarget=true
-//                      so Chess2DInputHandler can receive clicks
-//  _highlights[r,c]  — coloured overlays driven by Chess2DInputHandler
-//  _pieces[r,c]      — piece sprites on top
-//
-//  The hit areas and highlights are sized and positioned to line up with
-//  the squares on your PNG. If your board has a border, set
-//  boardBorderFraction in the Inspector to the fraction of the board size
-//  taken up by the border on each side (e.g. 0.05 for a 5% border).
-// ─────────────────────────────────────────────────────────────────────────────
-public class Chess2DRenderer : MonoBehaviour
+public class Chess2DRenderer : ChessBoardRendererBase
 {
-    // ── Inspector ─────────────────────────────────────────────────────────────
     [Header("Board")]
     public RectTransform boardContainer;
-
-    [Tooltip("The Image component that displays the board PNG.")]
     public Image boardImage;
 
-    [Tooltip("Fraction of the board size used by the border on each side. " +
-             "0 = no border. 0.05 = 5% border on each edge.")]
     [Range(0f, 0.2f)]
     public float boardBorderFraction = 0f;
 
     [Header("Piece Sprites")]
-    // Order: WPawn WKnight WBishop WRook WQueen WKing
-    //        BPawn BKnight BBishop BRook BQueen BKing
     public Sprite[] pieceSprites = new Sprite[12];
 
-    // ── Internal layers ───────────────────────────────────────────────────────
-    private Image[,] _hitAreas   = new Image[8, 8];
-    private Image[,] _highlights = new Image[8, 8];
-    private Image[,] _pieces     = new Image[8, 8];
+    private readonly Image[,] _hitAreas = new Image[8, 8];
+    private readonly Image[,] _highlights = new Image[8, 8];
+    private readonly Image[,] _pieces = new Image[8, 8];
 
-    // Computed from boardContainer size and borderFraction
     private float _cellSize;
-    private float _boardOffset; // pixel offset from board edge to first square
+    private float _boardOffset;
     private bool _isInitialized;
     private bool _eventsSubscribed;
     private bool _localPlayerIsWhite = true;
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
-    void Start()
+    private void Start()
     {
         EnsureInitialized();
         ApplyDefaultPerspectiveFromMode();
         RedrawPieces();
     }
 
-    void OnDestroy()
+    private void OnDestroy()
     {
         if (_eventsSubscribed)
+        {
             UnsubscribeFromEvents();
+        }
     }
 
-    // ── Activation (called by ModeManager) ───────────────────────────────────
-    public void Activate()
+    public override void Activate()
     {
-        if (!EnsureInitialized()) return;
+        if (!EnsureInitialized())
+        {
+            return;
+        }
+
         ApplyPerspective();
         boardContainer.gameObject.SetActive(true);
         ClearAllHighlights();
         RedrawPieces();
     }
 
-    public void Deactivate()
+    public override void Deactivate()
     {
-        if (boardContainer == null) return;
+        if (boardContainer == null)
+        {
+            return;
+        }
+
         boardContainer.gameObject.SetActive(false);
+    }
+
+    public override void SetPerspective(bool isWhite)
+    {
+        _localPlayerIsWhite = isWhite;
+        ApplyPerspective();
+    }
+
+    public override void RedrawPieces()
+    {
+        if (!EnsureInitialized() || GameStateManager.Instance == null)
+        {
+            return;
+        }
+
+        Piece[,] board = GameStateManager.Instance.Board;
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                Piece piece = board[row, col];
+                if (piece == Piece.None)
+                {
+                    _pieces[row, col].sprite = null;
+                    _pieces[row, col].color = Color.clear;
+                }
+                else
+                {
+                    _pieces[row, col].sprite = GetSprite(piece);
+                    _pieces[row, col].color = Color.white;
+                }
+
+                _pieces[row, col].rectTransform.localRotation = _localPlayerIsWhite
+                    ? Quaternion.identity
+                    : Quaternion.Euler(0f, 0f, 180f);
+            }
+        }
+    }
+
+    public override void ClearAllHighlights()
+    {
+        if (!EnsureInitialized())
+        {
+            return;
+        }
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                _highlights[row, col].color = Color.clear;
+            }
+        }
+    }
+
+    public override void SetHighlight(Vector2Int square, Color color)
+    {
+        SetHighlight(square.x, square.y, color);
+    }
+
+    public void SetHighlight(int row, int col, Color color)
+    {
+        if (row < 0 || row > 7 || col < 0 || col > 7)
+        {
+            return;
+        }
+
+        _highlights[row, col].color = color;
+    }
+
+    public Image GetHitArea(int row, int col)
+    {
+        if (!EnsureInitialized())
+        {
+            return null;
+        }
+
+        return _hitAreas[row, col];
     }
 
     private bool EnsureInitialized()
     {
-        if (_isInitialized) return true;
+        if (_isInitialized)
+        {
+            return true;
+        }
+
         if (boardContainer == null)
         {
             Debug.LogError("[Chess2DRenderer] boardContainer is not assigned.");
@@ -106,65 +160,61 @@ public class Chess2DRenderer : MonoBehaviour
         return true;
     }
 
-    public void SetPerspective(bool isWhite)
-    {
-        _localPlayerIsWhite = isWhite;
-        ApplyPerspective();
-    }
-
-    // ── Layout calculation ────────────────────────────────────────────────────
     private void ComputeLayout()
     {
-        float boardSize  = boardContainer.rect.width;
-        _boardOffset     = boardSize * boardBorderFraction;
-        float playArea   = boardSize - _boardOffset * 2f;
-        _cellSize        = playArea / 8f;
+        float boardSize = boardContainer.rect.width;
+        _boardOffset = boardSize * boardBorderFraction;
+        float playArea = boardSize - _boardOffset * 2f;
+        _cellSize = playArea / 8f;
     }
 
-    // ── Overlay grid construction (runs once) ─────────────────────────────────
-    // Three layers sit on top of boardImage, aligned to the board squares.
     private void BuildOverlayGrid()
     {
-        for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
+        for (int row = 0; row < 8; row++)
         {
-            // Layer 1: invisible hit area — clickable but not visible
-            _hitAreas[r, c] = MakeImage($"Hit_{r}{c}", boardContainer);
-            PlaceCell(_hitAreas[r, c].rectTransform, r, c);
-            _hitAreas[r, c].color         = Color.clear;
-            _hitAreas[r, c].raycastTarget = true;
+            for (int col = 0; col < 8; col++)
+            {
+                _hitAreas[row, col] = MakeImage($"Hit_{row}{col}", boardContainer);
+                PlaceCell(_hitAreas[row, col].rectTransform, row, col);
+                _hitAreas[row, col].color = Color.clear;
+                _hitAreas[row, col].raycastTarget = true;
 
-            // Layer 2: highlight overlay — coloured by input handler
-            _highlights[r, c] = MakeImage($"Hi_{r}{c}", boardContainer);
-            PlaceCell(_highlights[r, c].rectTransform, r, c);
-            _highlights[r, c].color         = Color.clear;
-            _highlights[r, c].raycastTarget = false;
+                _highlights[row, col] = MakeImage($"Hi_{row}{col}", boardContainer);
+                PlaceCell(_highlights[row, col].rectTransform, row, col);
+                _highlights[row, col].color = Color.clear;
+                _highlights[row, col].raycastTarget = false;
 
-            // Layer 3: piece sprite
-            _pieces[r, c] = MakeImage($"Pc_{r}{c}", boardContainer);
-            PlacePieceCell(_pieces[r, c].rectTransform, r, c);
-            _pieces[r, c].color         = Color.clear;
-            _pieces[r, c].raycastTarget = false;
+                _pieces[row, col] = MakeImage($"Pc_{row}{col}", boardContainer);
+                PlacePieceCell(_pieces[row, col].rectTransform, row, col);
+                _pieces[row, col].color = Color.clear;
+                _pieces[row, col].raycastTarget = false;
+            }
         }
     }
 
-    // ── Event wiring ──────────────────────────────────────────────────────────
     private void SubscribeToEvents()
     {
-        if (_eventsSubscribed) return;
-        GameEvents.OnMoveMade   += HandleMoveMade;
+        if (_eventsSubscribed)
+        {
+            return;
+        }
+
+        GameEvents.OnMoveMade += HandleMoveMade;
         GameEvents.OnBoardReset += HandleBoardReset;
         _eventsSubscribed = true;
     }
 
     private void UnsubscribeFromEvents()
     {
-        GameEvents.OnMoveMade   -= HandleMoveMade;
+        GameEvents.OnMoveMade -= HandleMoveMade;
         GameEvents.OnBoardReset -= HandleBoardReset;
         _eventsSubscribed = false;
     }
 
-    private void HandleMoveMade(MoveRecord move) => RedrawPieces();
+    private void HandleMoveMade(MoveRecord _)
+    {
+        RedrawPieces();
+    }
 
     private void HandleBoardReset()
     {
@@ -172,138 +222,98 @@ public class Chess2DRenderer : MonoBehaviour
         RedrawPieces();
     }
 
-    // ── Piece drawing ─────────────────────────────────────────────────────────
-    public void RedrawPieces()
+    private void PlaceCell(RectTransform rectTransform, int row, int col)
     {
-        if (!EnsureInitialized()) return;
-        if (GameStateManager.Instance == null) return;
-        Piece[,] board = GameStateManager.Instance.Board;
-
-        for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
-        {
-            Piece p = board[r, c];
-            if (p == Piece.None)
-            {
-                _pieces[r, c].sprite = null;
-                _pieces[r, c].color  = Color.clear;
-            }
-            else
-            {
-                _pieces[r, c].sprite = GetSprite(p);
-                _pieces[r, c].color  = Color.white;
-            }
-
-            _pieces[r, c].rectTransform.localRotation =
-                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
-        }
-    }
-
-    // ── Public highlight API (called by Chess2DInputHandler) ──────────────────
-    public void ClearAllHighlights()
-    {
-        if (!EnsureInitialized()) return;
-        for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
-            _highlights[r, c].color = Color.clear;
-    }
-
-    public void SetHighlight(Vector2Int sq, Color color) =>
-        SetHighlight(sq.x, sq.y, color);
-
-    public void SetHighlight(int row, int col, Color color)
-    {
-        if (row < 0 || row > 7 || col < 0 || col > 7) return;
-        _highlights[row, col].color = color;
-    }
-
-    /// <summary>Exposes hit area Images so Chess2DInputHandler can add Button components.</summary>
-    public Image GetHitArea(int row, int col)
-    {
-        if (!EnsureInitialized()) return null;
-        return _hitAreas[row, col];
-    }
-
-    // ── Cell placement ────────────────────────────────────────────────────────
-    private void PlaceCell(RectTransform rt, int row, int col)
-    {
-        rt.anchorMin        = Vector2.zero;
-        rt.anchorMax        = Vector2.zero;
-        rt.pivot            = Vector2.zero;
-        rt.sizeDelta        = new Vector2(_cellSize, _cellSize);
-        rt.anchoredPosition = new Vector2(
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.zero;
+        rectTransform.pivot = Vector2.zero;
+        rectTransform.sizeDelta = new Vector2(_cellSize, _cellSize);
+        rectTransform.anchoredPosition = new Vector2(
             _boardOffset + col * _cellSize,
-            _boardOffset + row * _cellSize
-        );
+            _boardOffset + row * _cellSize);
     }
 
-    private void PlacePieceCell(RectTransform rt, int row, int col)
+    private void PlacePieceCell(RectTransform rectTransform, int row, int col)
     {
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.zero;
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(_cellSize, _cellSize);
-        rt.anchoredPosition = new Vector2(
-            _boardOffset + col * _cellSize + (_cellSize * 0.5f),
-            _boardOffset + row * _cellSize + (_cellSize * 0.5f)
-        );
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.zero;
+        rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        rectTransform.sizeDelta = new Vector2(_cellSize, _cellSize);
+        rectTransform.anchoredPosition = new Vector2(
+            _boardOffset + col * _cellSize + _cellSize * 0.5f,
+            _boardOffset + row * _cellSize + _cellSize * 0.5f);
     }
 
     private void ApplyDefaultPerspectiveFromMode()
     {
         if (GameModeManager.Instance != null && GameModeManager.Instance.IsLanClient)
+        {
             _localPlayerIsWhite = false;
+        }
 
         ApplyPerspective();
     }
 
     private void ApplyPerspective()
     {
-        if (boardContainer == null) return;
+        if (boardContainer == null)
+        {
+            return;
+        }
 
-        boardContainer.localRotation =
-            _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+        boardContainer.localRotation = _localPlayerIsWhite
+            ? Quaternion.identity
+            : Quaternion.Euler(0f, 0f, 180f);
 
-        // Keep the printed board coordinates readable for the black-side view.
-        // The container still rotates so the squares/pieces/input perspective flip,
-        // but the board artwork itself is counter-rotated back upright.
         if (boardImage != null && boardImage.rectTransform != boardContainer)
         {
-            boardImage.rectTransform.localRotation =
-                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+            boardImage.rectTransform.localRotation = _localPlayerIsWhite
+                ? Quaternion.identity
+                : Quaternion.Euler(0f, 0f, 180f);
         }
 
-        for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
+        for (int row = 0; row < 8; row++)
         {
-            if (_pieces[r, c] == null) continue;
+            for (int col = 0; col < 8; col++)
+            {
+                if (_pieces[row, col] == null)
+                {
+                    continue;
+                }
 
-            _pieces[r, c].rectTransform.localRotation =
-                _localPlayerIsWhite ? Quaternion.identity : Quaternion.Euler(0f, 0f, 180f);
+                _pieces[row, col].rectTransform.localRotation = _localPlayerIsWhite
+                    ? Quaternion.identity
+                    : Quaternion.Euler(0f, 0f, 180f);
+            }
         }
     }
 
-    // ── Utility ───────────────────────────────────────────────────────────────
     private static Image MakeImage(string name, RectTransform parent)
     {
-        var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-        go.transform.SetParent(parent, false);
-        return go.GetComponent<Image>();
+        var gameObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+        gameObject.transform.SetParent(parent, false);
+        return gameObject.GetComponent<Image>();
     }
 
-    // ── Sprite lookup ─────────────────────────────────────────────────────────
-    private Sprite GetSprite(Piece p)
+    private Sprite GetSprite(Piece piece)
     {
-        int i = p switch
+        int index = piece switch
         {
-            Piece.WhitePawn   => 0,  Piece.WhiteKnight => 1,
-            Piece.WhiteBishop => 2,  Piece.WhiteRook   => 3,
-            Piece.WhiteQueen  => 4,  Piece.WhiteKing   => 5,
-            Piece.BlackPawn   => 6,  Piece.BlackKnight => 7,
-            Piece.BlackBishop => 8,  Piece.BlackRook   => 9,
-            Piece.BlackQueen  => 10, Piece.BlackKing   => 11,
-            _                 => -1
+            Piece.WhitePawn => 0,
+            Piece.WhiteKnight => 1,
+            Piece.WhiteBishop => 2,
+            Piece.WhiteRook => 3,
+            Piece.WhiteQueen => 4,
+            Piece.WhiteKing => 5,
+            Piece.BlackPawn => 6,
+            Piece.BlackKnight => 7,
+            Piece.BlackBishop => 8,
+            Piece.BlackRook => 9,
+            Piece.BlackQueen => 10,
+            Piece.BlackKing => 11,
+            _ => -1
         };
-        return (i >= 0 && i < pieceSprites.Length) ? pieceSprites[i] : null;
+
+        return index >= 0 && index < pieceSprites.Length ? pieceSprites[index] : null;
     }
 }

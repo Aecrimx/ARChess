@@ -1,81 +1,57 @@
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.SceneManagement;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  GameOverOverlay
-//
-//  Displays a full-screen overlay when the game ends.
-//  Subscribes to GameEvents.OnGameOver and shows the result with two buttons:
-//  Rematch (resets the board) and Main Menu (loads scene index 0).
-//
-//  SCENE SETUP:
-//  Attach this script to your 2dCanvas (or any persistent GameObject).
-//  It builds the overlay UI entirely in code — no prefab needed.
-//  The overlay is hidden on Start and shown only when OnGameOver fires.
-// ─────────────────────────────────────────────────────────────────────────────
 public class GameOverOverlay : MonoBehaviour
 {
-    // ── Optional Inspector overrides ──────────────────────────────────────────
     [Header("Visuals")]
-    public Font uiFont;           // drag your font asset here in the Inspector
-    public Sprite buttonSprite;   // optional — drag a 9-sliced button sprite here
-    public Sprite panelSprite;    // optional — drag a 9-sliced panel sprite here
+    public Font uiFont;
+    public Sprite buttonSprite;
+    public Sprite panelSprite;
     public Color overlayBackground = new Color(0f, 0f, 0f, 0.75f);
-    public Color panelBackground   = new Color(0.12f, 0.12f, 0.12f, 1f);
-    public Color buttonColor       = new Color(0.20f, 0.60f, 0.30f, 1f);
-    public Color buttonTextColor   = Color.white;
-    public Color resultTextColor   = Color.white;
+    public Color panelBackground = new Color(0.12f, 0.12f, 0.12f, 1f);
+    public Color buttonColor = new Color(0.20f, 0.60f, 0.30f, 1f);
+    public Color buttonTextColor = Color.white;
+    public Color resultTextColor = Color.white;
 
-    // ── References (built at runtime) ─────────────────────────────────────────
     private GameObject _overlay;
-    private Text       _resultText;
-    private Text       _resultSubText;
+    private Text _resultText;
+    private Text _resultSubText;
     private GameObject _rematchButtonGO;
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
-    void Start()
+    private void Start()
     {
         BuildOverlay();
-        GameEvents.OnGameOver   += HandleGameOver;
+        GameEvents.OnGameOver += HandleGameOver;
         GameEvents.OnBoardReset += HandleBoardReset;
     }
 
-    void OnDestroy()
+    private void OnDestroy()
     {
-        GameEvents.OnGameOver   -= HandleGameOver;
+        GameEvents.OnGameOver -= HandleGameOver;
         GameEvents.OnBoardReset -= HandleBoardReset;
     }
 
-    // ── Event handlers ────────────────────────────────────────────────────────
     private void HandleGameOver(GameResult result)
     {
-        var messages = ResultMessage(result);
+        string[] messages = ResultMessage(result);
         _resultText.text = messages[0];
         _resultSubText.text = messages[1];
-        
+
         if (_rematchButtonGO != null)
         {
             _rematchButtonGO.SetActive(result != GameResult.OpponentDisconnected);
         }
 
         _overlay.SetActive(true);
-
-        // Block input handler while overlay is showing
-        var input = GetComponent<Chess2DInputHandler>();
-        if (input != null) input.Deactivate();
+        ChessViewModeController.EnsureInScene()?.SetActiveInputEnabled(false);
     }
 
     private void HandleBoardReset()
     {
         _overlay.SetActive(false);
-
-        // Re-enable input
-        var input = GetComponent<Chess2DInputHandler>();
-        if (input != null) input.Activate();
+        ChessViewModeController.EnsureInScene()?.SetActiveInputEnabled(true);
     }
 
-    // ── Button callbacks ────────────────────────────────────────────────────
     private void OnRematchClicked()
     {
         var gmm = GameModeManager.Instance;
@@ -83,22 +59,25 @@ public class GameOverOverlay : MonoBehaviour
         {
             if (gmm.IsLanHost)
             {
-                // Host triggers the rematch for both players
                 LanNetworkManager.Instance?.RequestRematch();
             }
             else
             {
-                // Client waits; the reset fires when RpcGameStarted arrives
-                if (_resultText    != null) _resultText.text    = "Waiting for host...";
-                if (_resultSubText != null) _resultSubText.text = "";
+                if (_resultText != null)
+                {
+                    _resultText.text = "Waiting for host...";
+                }
+
+                if (_resultSubText != null)
+                {
+                    _resultSubText.text = string.Empty;
+                }
             }
+
+            return;
         }
-        else
-        {
-            // Local mode: reset immediately
-            GameStateManager.Instance.InitBoard();
-            // HandleBoardReset() fires via GameEvents.OnBoardReset
-        }
+
+        GameStateManager.Instance?.InitBoard();
     }
 
     private void OnMainMenuClicked()
@@ -106,152 +85,123 @@ public class GameOverOverlay : MonoBehaviour
         GameModeManager.Instance?.ExitCurrentGameToMainMenu();
     }
 
-    // ── UI construction ───────────────────────────────────────────────────────
     private void BuildOverlay()
     {
-        // Find the Canvas to parent under
         Canvas canvas = GetComponentInParent<Canvas>();
-        if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
-        if (canvas == null) { Debug.LogError("[GameOverOverlay] No Canvas found."); return; }
+        if (canvas == null)
+        {
+            canvas = FindAnyObjectByType<Canvas>();
+        }
 
-        // Full-screen dimmer
-        _overlay = MakeImage("GameOverOverlay", canvas.transform,
-                             new Color(0,0,0,0), Vector2.zero, Vector2.one);
-        _overlay.GetComponent<Image>().color = overlayBackground;
-        _overlay.GetComponent<Image>().raycastTarget = true; // block clicks on board
+        if (canvas == null)
+        {
+            Debug.LogError("[GameOverOverlay] No Canvas found.");
+            return;
+        }
 
-        // Centre panel
-        var panel = MakeImage("Panel", _overlay.transform,
-                              panelBackground, new Vector2(0.2f, 0.3f), new Vector2(0.8f, 0.7f), panelSprite);
+        _overlay = MakeImage("GameOverOverlay", canvas.transform, overlayBackground, Vector2.zero, Vector2.one);
+        _overlay.GetComponent<Image>().raycastTarget = true;
 
-        // Result text
-        var resultGO  = new GameObject("ResultText", typeof(RectTransform), typeof(Text));
-        resultGO.transform.SetParent(panel.transform, false);
-        var resultRT  = resultGO.GetComponent<RectTransform>();
-        resultRT.anchorMin        = new Vector2(0.05f, 0.75f);
-        resultRT.anchorMax        = new Vector2(0.95f, 0.95f);
-        resultRT.offsetMin        = Vector2.zero;
-        resultRT.offsetMax        = Vector2.zero;
-        _resultText               = resultGO.GetComponent<Text>();
-        _resultText.alignment     = TextAnchor.MiddleCenter;
-        _resultText.color         = resultTextColor;
-        _resultText.fontSize      = 75;
-        _resultText.fontStyle     = FontStyle.Bold;
-        _resultText.font          = GetFont();
+        GameObject panel = MakeImage("Panel", _overlay.transform, panelBackground, new Vector2(0.2f, 0.3f), new Vector2(0.8f, 0.7f), panelSprite);
 
-        // Result sub-text
-        var subTextGO = new GameObject("ResultSubText", typeof(RectTransform), typeof(Text));
-        subTextGO.transform.SetParent(panel.transform, false);
-        var subTextRT = subTextGO.GetComponent<RectTransform>();
-        subTextRT.anchorMin = new Vector2(0.05f, 0.55f);
-        subTextRT.anchorMax = new Vector2(0.95f, 0.75f);
-        subTextRT.offsetMin = Vector2.zero;
-        subTextRT.offsetMax = Vector2.zero;
-        _resultSubText = subTextGO.GetComponent<Text>();
-        _resultSubText.alignment = TextAnchor.MiddleCenter;
-        _resultSubText.color = resultTextColor;
-        _resultSubText.fontSize = 50;
-        _resultSubText.fontStyle = FontStyle.Normal;
-        _resultSubText.font = GetFont();
+        _resultText = MakeText("ResultText", panel.transform, new Vector2(0.05f, 0.75f), new Vector2(0.95f, 0.95f), 75, FontStyle.Bold);
+        _resultSubText = MakeText("ResultSubText", panel.transform, new Vector2(0.05f, 0.55f), new Vector2(0.95f, 0.75f), 50, FontStyle.Normal);
 
-        // Rematch button
-        var rematch = MakeButton("Rematch", panel.transform,
-                                 new Vector2(0.05f, 0.2f), new Vector2(0.475f, 0.35f),
-                                 "Rematch", buttonColor, buttonTextColor, GetFont(), buttonSprite);
+        Button rematch = MakeButton("Rematch", panel.transform, new Vector2(0.05f, 0.2f), new Vector2(0.475f, 0.35f), "Rematch");
         rematch.onClick.AddListener(OnRematchClicked);
         _rematchButtonGO = rematch.gameObject;
 
-        // Main menu button
-        var menu = MakeButton("MainMenu", panel.transform,
-                              new Vector2(0.525f, 0.2f), new Vector2(0.95f, 0.35f),
-                              "Main Menu", buttonColor, buttonTextColor, GetFont(), buttonSprite);
+        Button menu = MakeButton("MainMenu", panel.transform, new Vector2(0.525f, 0.2f), new Vector2(0.95f, 0.35f), "Main Menu");
         menu.onClick.AddListener(OnMainMenuClicked);
 
         _overlay.SetActive(false);
     }
 
-    // ── Result message ────────────────────────────────────────────────────────
+    private Text MakeText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, int fontSize, FontStyle style)
+    {
+        var go = new GameObject(name, typeof(RectTransform), typeof(Text));
+        go.transform.SetParent(parent, false);
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        Text text = go.GetComponent<Text>();
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = resultTextColor;
+        text.fontSize = fontSize;
+        text.fontStyle = style;
+        text.font = GetFont();
+        return text;
+    }
+
     private static string[] ResultMessage(GameResult result) => result switch
     {
-        GameResult.WhiteWins          => new string[] { "Checkmate!", "White wins" },
-        GameResult.BlackWins          => new string[] { "Checkmate!", "Black wins" },
-        GameResult.Stalemate          => new string[] { "Stalemate!", "Draw" },
-        GameResult.DrawByRepetition   => new string[] { "Draw!", "Threefold repetition" },
-        GameResult.DrawByFiftyMoveRule => new string[] { "Draw!", "50-move rule" },
-        GameResult.WhiteWinsOnTime    => new string[] { "Time's Up!", "White wins on time" },
-        GameResult.BlackWinsOnTime    => new string[] { "Time's Up!", "Black wins on time" },
-        GameResult.OpponentDisconnected => new string[] { "Disconnected", "Opponent left the match" },
-        _                             => new string[] { "Game Over", "Unexpected result" }
+        GameResult.WhiteWins => new[] { "Checkmate!", "White wins" },
+        GameResult.BlackWins => new[] { "Checkmate!", "Black wins" },
+        GameResult.Stalemate => new[] { "Stalemate!", "Draw" },
+        GameResult.DrawByRepetition => new[] { "Draw!", "Threefold repetition" },
+        GameResult.DrawByFiftyMoveRule => new[] { "Draw!", "50-move rule" },
+        GameResult.WhiteWinsOnTime => new[] { "Time's Up!", "White wins on time" },
+        GameResult.BlackWinsOnTime => new[] { "Time's Up!", "Black wins on time" },
+        GameResult.OpponentDisconnected => new[] { "Disconnected", "Opponent left the match" },
+        _ => new[] { "Game Over", "Unexpected result" }
     };
 
-    // ── UI helpers ────────────────────────────────────────────────────────────
-    private static GameObject MakeImage(string name, Transform parent,
-                                        Color color, Vector2 anchorMin, Vector2 anchorMax,
-                                        Sprite sprite = null)
+    private static GameObject MakeImage(string name, Transform parent, Color color, Vector2 anchorMin, Vector2 anchorMax, Sprite sprite = null)
     {
-        var go  = new GameObject(name, typeof(RectTransform), typeof(Image));
+        var go = new GameObject(name, typeof(RectTransform), typeof(Image));
         go.transform.SetParent(parent, false);
-        var rt  = go.GetComponent<RectTransform>();
-        rt.anchorMin  = anchorMin;
-        rt.anchorMax  = anchorMax;
-        rt.offsetMin  = Vector2.zero;
-        rt.offsetMax  = Vector2.zero;
-        var img = go.GetComponent<Image>();
-        img.color = color;
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        Image image = go.GetComponent<Image>();
+        image.color = color;
         if (sprite != null)
         {
-            img.sprite = sprite;
-            img.type   = Image.Type.Sliced;  // uses 9-slice so corners stay sharp
+            image.sprite = sprite;
+            image.type = Image.Type.Sliced;
         }
+
         return go;
     }
 
-    // ── Font helper ───────────────────────────────────────────────────────────
     private Font GetFont()
     {
-        if (uiFont != null) return uiFont;
-        return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        return uiFont != null ? uiFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
     }
 
-    private static Button MakeButton(string name, Transform parent,
-                                     Vector2 anchorMin, Vector2 anchorMax,
-                                     string label, Color bgColor, Color textColor, Font font,
-                                     Sprite sprite = null)
+    private Button MakeButton(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, string label)
     {
-        var go  = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
+        var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(parent, false);
-        var rt  = go.GetComponent<RectTransform>();
-        rt.anchorMin  = anchorMin;
-        rt.anchorMax  = anchorMax;
-        rt.offsetMin  = Vector2.zero;
-        rt.offsetMax  = Vector2.zero;
-        var img = go.GetComponent<Image>();
-        img.color  = bgColor;            // tints the sprite
-        if (sprite != null)
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        Image image = go.GetComponent<Image>();
+        image.color = buttonColor;
+        if (buttonSprite != null)
         {
-            img.sprite = sprite;
-            img.type   = Image.Type.Sliced;  // uses 9-slice so corners stay sharp
+            image.sprite = buttonSprite;
+            image.type = Image.Type.Sliced;
         }
 
-        var btn = go.GetComponent<Button>();
-        btn.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
+        Button button = go.GetComponent<Button>();
 
-        // Label
-        var textGO  = new GameObject("Label", typeof(RectTransform), typeof(Text));
-        textGO.transform.SetParent(go.transform, false);
-        var textRT  = textGO.GetComponent<RectTransform>();
-        textRT.anchorMin  = Vector2.zero;
-        textRT.anchorMax  = Vector2.one;
-        textRT.offsetMin  = Vector2.zero;
-        textRT.offsetMax  = Vector2.zero;
-        var text          = textGO.GetComponent<Text>();
-        text.text         = label;
-        text.alignment    = TextAnchor.MiddleCenter;
-        text.color        = textColor;
-        text.fontSize     = 50;
-        text.fontStyle    = FontStyle.Normal;
-        text.font         = font;
+        Text text = MakeText("Label", go.transform, Vector2.zero, Vector2.one, 50, FontStyle.Normal);
+        text.text = label;
+        text.color = buttonTextColor;
 
-        return btn;
+        return button;
     }
 }
