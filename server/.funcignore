@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+local.settings.json
+test_*.py
+ci_smoke_test.py
+*.log

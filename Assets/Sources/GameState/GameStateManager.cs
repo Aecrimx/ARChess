@@ -37,6 +37,7 @@ public class GameSnapshot
     public bool         BlackCanCastleQueenside;
     public int          EnPassantCol;          // -1 = none
     public int          EnPassantRow;
+    public int          HalfMoveClock;
     public float        WhiteTimeRemaining;
     public float        BlackTimeRemaining;
     public List<int>    CapturedByWhite      = new List<int>();
@@ -160,6 +161,7 @@ public class GameStateManager : MonoBehaviour
 
     // ── 50-move rule counter ─────────────────────────────────────
     private int _halfMoveClock = 0;
+    public int HalfMoveClock => _halfMoveClock;
 
     // ── Repetition tracking ─────────────────────
     private Dictionary<string, int> _positionCounts = new Dictionary<string, int>();
@@ -278,6 +280,7 @@ public class GameStateManager : MonoBehaviour
             BlackCanCastleQueenside = BlackCanCastleQueenside,
             EnPassantCol            = EnPassantTarget.x,
             EnPassantRow            = EnPassantTarget.y,
+            HalfMoveClock           = _halfMoveClock,
             WhiteTimeRemaining      = WhiteTimeRemaining,
             BlackTimeRemaining      = BlackTimeRemaining,
             Result                  = Result
@@ -309,6 +312,7 @@ public class GameStateManager : MonoBehaviour
         BlackCanCastleKingside  = snap.BlackCanCastleKingside;
         BlackCanCastleQueenside = snap.BlackCanCastleQueenside;
         EnPassantTarget         = new Vector2Int(snap.EnPassantCol, snap.EnPassantRow);
+        _halfMoveClock          = snap.HalfMoveClock;
         WhiteTimeRemaining      = snap.WhiteTimeRemaining;
         BlackTimeRemaining      = snap.BlackTimeRemaining;
         Result                  = snap.Result;

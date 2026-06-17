@@ -108,3 +108,5 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
 *.pyc
+__pycache__/
+server/local.settings.sample.json

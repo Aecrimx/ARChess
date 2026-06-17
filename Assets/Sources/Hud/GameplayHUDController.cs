@@ -60,6 +60,9 @@ namespace Sources.Hud
 
         private ChessViewModeController _viewModeController;
         private CapturedPiecesController _capturedPiecesController;
+        private GameObject _aiCoachBubbleRoot;
+        private TMP_Text _aiCoachBubbleText;
+        private AiMoveCoachController _aiMoveCoachController;
 
         public void SetLocalPlayerIsWhite(bool value)
         {
@@ -159,6 +162,7 @@ namespace Sources.Hud
             SetTwoDMatchHudVisible(false);
             SetMainControlsVisible(false);
             SetARHudVisible(false);
+            SetAiCoachHudAllowed(false);
 
             if (_exitDialogOpen)
             {
@@ -289,8 +293,40 @@ namespace Sources.Hud
                 FontStyle.Normal,
                 TextAnchor.MiddleLeft);
 
+            BuildAiCoachBubble(canvas.transform);
             BuildARHud(canvas.transform);
             BuildExitDialog(canvas.transform);
+        }
+
+        private void BuildAiCoachBubble(Transform parent)
+        {
+            _aiCoachBubbleRoot = MakeImage(
+                "AiCoachBubble",
+                parent,
+                new Color(0.08f, 0.08f, 0.10f, 0.88f),
+                new Vector2(0.1f, 0.78f),
+                new Vector2(0.9f, 0.9f),
+                menuPanelSprite);
+
+            _aiCoachBubbleText = MakeText(
+                "AiCoachBubbleText",
+                _aiCoachBubbleRoot.transform,
+                new Vector2(0.05f, 0.08f),
+                new Vector2(0.95f, 0.92f),
+                "Coach is watching your moves.",
+                22,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft);
+            _aiCoachBubbleText.textWrappingMode = TextWrappingModes.Normal;
+            _aiCoachBubbleText.overflowMode = TextOverflowModes.Ellipsis;
+
+            _aiMoveCoachController = GetComponent<AiMoveCoachController>();
+            if (_aiMoveCoachController == null)
+            {
+                _aiMoveCoachController = gameObject.AddComponent<AiMoveCoachController>();
+            }
+
+            _aiMoveCoachController.Bind(_aiCoachBubbleRoot, _aiCoachBubbleText);
         }
 
         private void BuildARHud(Transform parent)
@@ -599,6 +635,7 @@ namespace Sources.Hud
 
             SetTwoDMatchHudVisible(!isARModeActive && showGameplayHud);
             SetMainControlsVisible(!isARModeActive && showGameplayHud);
+            SetAiCoachHudAllowed(!isARModeActive && showGameplayHud);
 
             if (_arToggleButton != null)
             {
@@ -669,6 +706,18 @@ namespace Sources.Hud
             }
 
             SetARControlsObjectsVisible(visible);
+        }
+
+        private void SetAiCoachHudAllowed(bool visible)
+        {
+            if (_aiMoveCoachController != null)
+            {
+                _aiMoveCoachController.SetHudAllowed(visible);
+            }
+            else if (_aiCoachBubbleRoot != null)
+            {
+                _aiCoachBubbleRoot.SetActive(false);
+            }
         }
 
         private void SetARControlsVisible(bool visible)

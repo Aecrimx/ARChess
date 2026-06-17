@@ -17,6 +17,7 @@ public class GameOverOverlay : MonoBehaviour
     private Text _resultText;
     private Text _resultSubText;
     private GameObject _rematchButtonGO;
+    private AiGameReviewOverlay _reviewOverlay;
 
     private void Start()
     {
@@ -49,6 +50,7 @@ public class GameOverOverlay : MonoBehaviour
     private void HandleBoardReset()
     {
         _overlay.SetActive(false);
+        _reviewOverlay?.Hide();
         ChessViewModeController.EnsureInScene()?.SetActiveInputEnabled(true);
     }
 
@@ -85,6 +87,26 @@ public class GameOverOverlay : MonoBehaviour
         GameModeManager.Instance?.ExitCurrentGameToMainMenu();
     }
 
+    private void OnReviewClicked()
+    {
+        AiGameReviewRequest reviewRequest = BuildReviewRequest();
+        if (reviewRequest == null)
+        {
+            Debug.LogWarning("[GameOverOverlay] Cannot review game because GameStateManager is missing.");
+            return;
+        }
+
+        ExitLanLobbyForLocalReview();
+        if (_reviewOverlay == null)
+        {
+            Debug.LogWarning("[GameOverOverlay] Review overlay is not available.");
+            return;
+        }
+
+        _overlay.SetActive(false);
+        _reviewOverlay.Show(reviewRequest, () => _overlay.SetActive(true));
+    }
+
     private void BuildOverlay()
     {
         Canvas canvas = GetComponentInParent<Canvas>();
@@ -107,14 +129,64 @@ public class GameOverOverlay : MonoBehaviour
         _resultText = MakeText("ResultText", panel.transform, new Vector2(0.05f, 0.75f), new Vector2(0.95f, 0.95f), 75, FontStyle.Bold);
         _resultSubText = MakeText("ResultSubText", panel.transform, new Vector2(0.05f, 0.55f), new Vector2(0.95f, 0.75f), 50, FontStyle.Normal);
 
-        Button rematch = MakeButton("Rematch", panel.transform, new Vector2(0.05f, 0.2f), new Vector2(0.475f, 0.35f), "Rematch");
+        Button review = MakeButton("ReviewGame", panel.transform, new Vector2(0.05f, 0.38f), new Vector2(0.95f, 0.52f), "Review Game");
+        review.onClick.AddListener(OnReviewClicked);
+
+        Button rematch = MakeButton("Rematch", panel.transform, new Vector2(0.05f, 0.16f), new Vector2(0.475f, 0.31f), "Rematch");
         rematch.onClick.AddListener(OnRematchClicked);
         _rematchButtonGO = rematch.gameObject;
 
-        Button menu = MakeButton("MainMenu", panel.transform, new Vector2(0.525f, 0.2f), new Vector2(0.95f, 0.35f), "Main Menu");
+        Button menu = MakeButton("MainMenu", panel.transform, new Vector2(0.525f, 0.16f), new Vector2(0.95f, 0.31f), "Main Menu");
         menu.onClick.AddListener(OnMainMenuClicked);
 
+        _reviewOverlay = gameObject.AddComponent<AiGameReviewOverlay>();
+        _reviewOverlay.Build(
+            canvas.transform,
+            GetFont(),
+            buttonSprite,
+            panelSprite,
+            overlayBackground,
+            panelBackground,
+            buttonColor,
+            buttonTextColor,
+            resultTextColor);
+
         _overlay.SetActive(false);
+    }
+
+    private AiGameReviewRequest BuildReviewRequest()
+    {
+        var gsm = GameStateManager.Instance;
+        if (gsm == null)
+        {
+            return null;
+        }
+
+        bool localPlayerIsWhite = GameModeManager.Instance == null || !GameModeManager.Instance.IsLanClient;
+        string playerColor = ChessNotationExporter.GetReviewPlayerColor(localPlayerIsWhite);
+        return gsm.BuildReviewRequest(playerColor);
+    }
+
+    private void ExitLanLobbyForLocalReview()
+    {
+        var gmm = GameModeManager.Instance;
+        if (gmm == null || !gmm.IsLan)
+        {
+            return;
+        }
+
+        LanNetworkManager lanManager = LanNetworkManager.Instance;
+        if (lanManager != null)
+        {
+            lanManager.Disconnect();
+            Mirror.NetworkManager.ResetStatics();
+            Destroy(lanManager.gameObject);
+        }
+
+        if (GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.IsNetworked = false;
+        }
     }
 
     private Text MakeText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, int fontSize, FontStyle style)
