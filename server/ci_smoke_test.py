@@ -91,6 +91,15 @@ def main() -> int:
         assert "feedback" in analyze_data
         assert "[mock]" in analyze_data["feedback"]
 
+        ai_move_payload = {
+            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "difficulty": "normal",
+        }
+        ai_move_data = _post_json(base_url, "/ai-move", ai_move_payload)
+        assert ai_move_data["difficulty"] == "normal"
+        assert "best_move" in ai_move_data
+        assert ai_move_data["best_move"]
+
         review_payload = {
             "pgn": "1. f3 e5 2. g4 Qh4#",
             "player_color": "white",
@@ -99,7 +108,7 @@ def main() -> int:
         assert "review" in review_data
         assert "[mock]" in review_data["review"]
 
-        print("Smoke test passed: /health, /analyze-move, and /review-game responded correctly.")
+        print("Smoke test passed: /health, /analyze-move, /ai-move, and /review-game responded correctly.")
         return 0
     finally:
         if process.poll() is None:

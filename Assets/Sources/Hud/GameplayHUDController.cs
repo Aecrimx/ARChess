@@ -305,7 +305,7 @@ namespace Sources.Hud
                 parent,
                 new Color(0.08f, 0.08f, 0.10f, 0.88f),
                 new Vector2(0.1f, 0.78f),
-                new Vector2(0.9f, 0.9f),
+                new Vector2(0.9f, 0.91f),
                 menuPanelSprite);
 
             _aiCoachBubbleText = MakeText(
@@ -314,7 +314,7 @@ namespace Sources.Hud
                 new Vector2(0.05f, 0.08f),
                 new Vector2(0.95f, 0.92f),
                 "Coach is watching your moves.",
-                22,
+                30,
                 FontStyle.Normal,
                 TextAnchor.MiddleLeft);
             _aiCoachBubbleText.textWrappingMode = TextWrappingModes.Normal;
@@ -340,7 +340,7 @@ namespace Sources.Hud
                 "ARTopBar",
                 _arHudRoot.transform,
                 arBarColor,
-                new Vector2(0f, 0.875f),
+                new Vector2(0f, 0.91f),
                 Vector2.one,
                 menuPanelSprite);
 

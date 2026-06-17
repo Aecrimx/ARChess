@@ -57,9 +57,12 @@ public class MainMenuController : MonoBehaviour
     private Text   _selectedTimerLabel;
     private Text   _modeTimerTitleLabel;
     private Text   _modeTimerSelectedLabel;
+    private GameObject _aiDifficultyRoot;
     private string _selectedTimerPreset = "unlimited";   // PlayerPrefs value
+    private string _selectedAiDifficulty = AiOpponentController.DefaultDifficulty;
     private string _pendingLocalMode = "local2P";
     private readonly List<Button> _timerButtons = new List<Button>();
+    private readonly List<Button> _aiDifficultyButtons = new List<Button>();
 
     // ── Join lobby state ──────────────────────────────────────────────────────
     private Transform      _serverListContent;
@@ -74,6 +77,8 @@ public class MainMenuController : MonoBehaviour
     void Start()
     {
         _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", "unlimited");
+        _selectedAiDifficulty = AiOpponentController.NormalizeDifficulty(
+            PlayerPrefs.GetString(AiOpponentController.DifficultyPrefKey, AiOpponentController.DefaultDifficulty));
         SetBackground();
         BuildUI();
         ShowPanel(_mainPanel);
@@ -193,21 +198,23 @@ public class MainMenuController : MonoBehaviour
                  "Choose Time Control", 75, FontStyle.Bold, titleColor, TextAnchor.MiddleCenter);
 
         MakeText("TimerLabel", t,
-                 new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.78f),
+                 new Vector2(0.05f, 0.7f), new Vector2(0.95f, 0.8f),
                  "Time Control:", 50, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
 
-        BuildTimerPresetButtons(t, 0.56f, 0.67f);
+        BuildTimerPresetButtons(t, 0.6f, 0.71f);
 
         _modeTimerSelectedLabel = MakeText("SelectedTimerLabel", t,
-                 new Vector2(0.05f, 0.46f), new Vector2(0.95f, 0.54f),
+                 new Vector2(0.05f, 0.55f), new Vector2(0.95f, 0.58f),
                  "", 40, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
 
+        BuildAiDifficultySelection(t);
+
         MakeButton("BtnStartLocalMode", t,
-                   new Vector2(0.1f, 0.32f), new Vector2(0.9f, 0.45f),
+                   new Vector2(0.1f, 0.20f), new Vector2(0.9f, 0.31f),
                    "Start Game").onClick.AddListener(OnStartSelectedLocalModeClicked);
 
         MakeButton("BtnBack", t,
-                   new Vector2(0.1f, 0.15f), new Vector2(0.9f, 0.27f),
+                   new Vector2(0.1f, 0.06f), new Vector2(0.9f, 0.17f),
                    "Back").onClick.AddListener(() =>
         {
             ShowPanel(_pendingLocalMode == "vsAI" ? _mainPanel : _pvpPanel);
@@ -215,6 +222,19 @@ public class MainMenuController : MonoBehaviour
     }
 
     // ── LAN panel ─────────────────────────────────────────────────────────────
+    private void BuildAiDifficultySelection(Transform parent)
+    {
+        _aiDifficultyRoot = new GameObject("AiDifficultyGroup", typeof(RectTransform));
+        _aiDifficultyRoot.transform.SetParent(parent, false);
+        StretchFull(_aiDifficultyRoot.GetComponent<RectTransform>());
+
+        MakeText("AiDifficultyLabel", _aiDifficultyRoot.transform,
+                 new Vector2(0.05f, 0.45f), new Vector2(0.95f, 0.5f),
+                 "AI Difficulty", 42, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+
+        BuildAiDifficultyButtons(_aiDifficultyRoot.transform, 0.38f, 0.44f);
+    }
+
     private void BuildLanPanel(Transform root)
     {
         _lanPanel = MakePanel("LanPanel", root);
@@ -254,7 +274,7 @@ public class MainMenuController : MonoBehaviour
                  new Vector2(0.05f, 0.52f), new Vector2(0.95f, 0.60f),
                  "", 40, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
 
-        BuildTimerPresetButtons(t, 0.60f, 0.71f);
+        BuildTimerPresetButtons(t, 0.63f, 0.74f);
 
         RefreshTimerSelectionUi();
 
@@ -410,11 +430,14 @@ public class MainMenuController : MonoBehaviour
     {
         _pendingLocalMode = gameMode;
         _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", _selectedTimerPreset);
+        _selectedAiDifficulty = AiOpponentController.NormalizeDifficulty(
+            PlayerPrefs.GetString(AiOpponentController.DifficultyPrefKey, _selectedAiDifficulty));
 
         if (_modeTimerTitleLabel != null)
-            _modeTimerTitleLabel.text = $"{title} Time Control";
+            _modeTimerTitleLabel.text = $"{title}";
 
         RefreshTimerSelectionUi();
+        SetAiDifficultySelectionVisible(_pendingLocalMode == "vsAI");
         ShowPanel(_timerSelectPanel);
     }
 
@@ -422,6 +445,11 @@ public class MainMenuController : MonoBehaviour
     {
         PlayerPrefs.SetString("GameMode", _pendingLocalMode);
         PlayerPrefs.SetString("TimerPreset", _selectedTimerPreset);
+        if (_pendingLocalMode == "vsAI")
+        {
+            PlayerPrefs.SetString(AiOpponentController.DifficultyPrefKey, _selectedAiDifficulty);
+        }
+
         PlayerPrefs.Save();
         SceneManager.LoadScene(gameSceneName);
     }
@@ -610,6 +638,8 @@ public class MainMenuController : MonoBehaviour
                 ? buttonHoverColor
                 : buttonColor;
         }
+
+        RefreshAiDifficultySelectionUi();
     }
 
     private void BuildTimerPresetButtons(Transform parent, float yMin, float yMax)
@@ -632,6 +662,54 @@ public class MainMenuController : MonoBehaviour
                 RefreshTimerSelectionUi();
                 Debug.Log($"[MainMenu] Timer preset: {_selectedTimerPreset}");
             });
+        }
+    }
+
+    private void BuildAiDifficultyButtons(Transform parent, float yMin, float yMax)
+    {
+        string[] labels = { "Easy", "Normal", "Hard" };
+        string[] values = { "easy", "normal", "hard" };
+        float btnW = 1f / labels.Length;
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            int idx = i;
+            var difficultyButton = MakeButton($"BtnAiDifficulty{values[i]}", parent,
+                       new Vector2(i * btnW + 0.02f, yMin),
+                       new Vector2((i + 1) * btnW - 0.02f, yMax),
+                       labels[i]);
+            _aiDifficultyButtons.Add(difficultyButton);
+            difficultyButton.onClick.AddListener(() =>
+            {
+                _selectedAiDifficulty = values[idx];
+                RefreshAiDifficultySelectionUi();
+                Debug.Log($"[MainMenu] AI difficulty: {_selectedAiDifficulty}");
+            });
+        }
+    }
+
+    private void RefreshAiDifficultySelectionUi()
+    {
+        string[] values = { "easy", "normal", "hard" };
+        for (int i = 0; i < _aiDifficultyButtons.Count; i++)
+        {
+            var button = _aiDifficultyButtons[i];
+            if (button == null) continue;
+
+            var image = button.GetComponent<Image>();
+            if (image == null) continue;
+
+            image.color = values[i % values.Length] == _selectedAiDifficulty
+                ? buttonHoverColor
+                : buttonColor;
+        }
+    }
+
+    private void SetAiDifficultySelectionVisible(bool visible)
+    {
+        if (_aiDifficultyRoot != null)
+        {
+            _aiDifficultyRoot.SetActive(visible);
         }
     }
 

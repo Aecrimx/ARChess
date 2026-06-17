@@ -162,6 +162,11 @@ public sealed class ChessMoveInteractionController : IDisposable
             return;
         }
 
+        if (GameModeManager.Instance != null && GameModeManager.Instance.IsVsAI && !gsm.IsWhiteTurn)
+        {
+            return;
+        }
+
         if (gsm.IsNetworked)
         {
             bool myTurn = (_localPlayerIsWhite && gsm.IsWhiteTurn) || (!_localPlayerIsWhite && !gsm.IsWhiteTurn);

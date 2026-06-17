@@ -2,16 +2,20 @@ from fastapi import FastAPI, HTTPException
 
 try:
     from .ai_service import (
+        AiMoveRequest,
         GameReviewRequest,
         MoveRequest,
+        ai_move_response,
         analyze_move_response,
         health_payload,
         review_game_response,
     )
 except ImportError:
     from ai_service import (
+        AiMoveRequest,
         GameReviewRequest,
         MoveRequest,
+        ai_move_response,
         analyze_move_response,
         health_payload,
         review_game_response,
@@ -30,6 +34,14 @@ async def health():
 async def analyze_move(req: MoveRequest):
     try:
         return analyze_move_response(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/ai-move")
+async def ai_move(req: AiMoveRequest):
+    try:
+        return ai_move_response(req)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -8,6 +8,56 @@ os.environ.setdefault("MOCK_STOCKFISH", "1")
 import ai_service
 
 
+def test_ai_move_response_returns_legal_mock_move():
+    payload = ai_service.AiMoveRequest(
+        fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        difficulty="normal",
+    )
+
+    response = ai_service.ai_move_response(payload)
+    board = ai_service.chess.Board(payload.fen)
+    move = ai_service.chess.Move.from_uci(response["best_move"])
+
+    assert response["difficulty"] == "normal"
+    assert move in board.legal_moves
+
+
+def test_ai_move_response_normalizes_difficulty():
+    payload = ai_service.AiMoveRequest(
+        fen=ai_service.chess.STARTING_FEN,
+        difficulty=" HARD ",
+    )
+
+    response = ai_service.ai_move_response(payload)
+
+    assert response["difficulty"] == "hard"
+
+
+def test_ai_move_response_rejects_invalid_fen():
+    payload = ai_service.AiMoveRequest(fen="not a fen", difficulty="easy")
+
+    with pytest.raises(ValueError, match="fen is not a valid FEN"):
+        ai_service.ai_move_response(payload)
+
+
+def test_ai_move_request_rejects_invalid_difficulty():
+    with pytest.raises(ValueError, match="difficulty must be one of"):
+        ai_service.AiMoveRequest(
+            fen=ai_service.chess.STARTING_FEN,
+            difficulty="impossible",
+        )
+
+
+def test_ai_move_response_rejects_game_over_position():
+    payload = ai_service.AiMoveRequest(
+        fen="7k/5Q2/6K1/8/8/8/8/8 b - - 0 1",
+        difficulty="normal",
+    )
+
+    with pytest.raises(ValueError, match="game-over position"):
+        ai_service.ai_move_response(payload)
+
+
 def test_replay_uci_moves_builds_final_fen_and_san():
     replay = ai_service.replay_uci_moves(["e2e4", "e7e5", "g1f3"])
 

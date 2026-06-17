@@ -5,8 +5,10 @@ import azure.functions as func
 from pydantic import BaseModel, ValidationError
 
 from ai_service import (
+    AiMoveRequest,
     GameReviewRequest,
     MoveRequest,
+    ai_move_response,
     analyze_move_response,
     health_payload,
     parse_model,
@@ -59,6 +61,11 @@ def health(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="analyze-move", methods=["POST"])
 def analyze_move(req: func.HttpRequest) -> func.HttpResponse:
     return _handle_model_request(req, MoveRequest, analyze_move_response)
+
+
+@app.route(route="ai-move", methods=["POST"])
+def ai_move(req: func.HttpRequest) -> func.HttpResponse:
+    return _handle_model_request(req, AiMoveRequest, ai_move_response)
 
 
 @app.route(route="review-game", methods=["POST"])

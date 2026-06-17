@@ -82,6 +82,19 @@ public sealed class AiCoachClient : MonoBehaviour
             90);
     }
 
+    public IEnumerator AiMove(
+        AiMoveRequest payload,
+        Action<AiMoveResponse> onSuccess,
+        Action<string> onError)
+    {
+        yield return PostJson<AiMoveRequest, AiMoveResponse>(
+            "ai-move",
+            payload,
+            onSuccess,
+            onError,
+            30);
+    }
+
     private IEnumerator PostJson<TRequest, TResponse>(
         string route,
         TRequest payload,
@@ -158,6 +171,20 @@ public sealed class AiAnalyzeMoveRequest
 public sealed class AiAnalyzeMoveResponse
 {
     [JsonProperty("feedback")] public string Feedback;
+}
+
+[Serializable]
+public sealed class AiMoveRequest
+{
+    [JsonProperty("fen")] public string Fen;
+    [JsonProperty("difficulty")] public string Difficulty;
+}
+
+[Serializable]
+public sealed class AiMoveResponse
+{
+    [JsonProperty("best_move")] public string BestMove;
+    [JsonProperty("difficulty")] public string Difficulty;
 }
 
 [Serializable]

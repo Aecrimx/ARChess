@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 
 import chess
 import chess.engine
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 try:
     from google import genai
@@ -46,6 +46,12 @@ STOCKFISH_DEPTH = _env_int("STOCKFISH_DEPTH", 15)
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 COACH_PERSONALITY = os.getenv("COACH_PERSONALITY", "cocky")
 
+AI_DIFFICULTY_PRESETS = {
+    "easy": {"depth": 3, "skill_level": 3},
+    "normal": {"depth": 8, "skill_level": 10},
+    "hard": {"depth": STOCKFISH_DEPTH, "skill_level": 20},
+}
+
 _genai_client = None
 
 
@@ -62,6 +68,26 @@ class GameReviewRequest(BaseModel):
     pgn: Optional[str] = None
     moves_uci: Optional[List[str]] = None
     final_fen: Optional[str] = None
+
+
+class AiMoveRequest(BaseModel):
+    fen: str
+    difficulty: str = "normal"
+
+    @validator("difficulty", pre=True, always=True)
+    def normalize_difficulty(cls, value: Any) -> str:
+        if value is None:
+            return "normal"
+
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return "normal"
+
+        if normalized not in AI_DIFFICULTY_PRESETS:
+            allowed = ", ".join(AI_DIFFICULTY_PRESETS.keys())
+            raise ValueError(f"difficulty must be one of: {allowed}")
+
+        return normalized
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -94,11 +120,15 @@ def _get_genai_client():
     return _genai_client
 
 
-def _validate_fen(fen: str, label: str) -> None:
+def _board_from_fen(fen: str, label: str) -> chess.Board:
     try:
-        chess.Board(fen)
+        return chess.Board(fen)
     except ValueError as exc:
         raise ValueError(f"{label} is not a valid FEN: {exc}") from exc
+
+
+def _validate_fen(fen: str, label: str) -> None:
+    _board_from_fen(fen, label)
 
 
 def evaluate_position(fen: str, depth: int = STOCKFISH_DEPTH) -> Dict[str, Any]:
@@ -139,6 +169,46 @@ def get_best_move(fen: str, num_moves: int = 3) -> Dict[str, Any]:
             if move:
                 moves.append({"move": move.uci(), "score": score})
         return {"top_moves": moves}
+
+
+def _first_legal_move(board: chess.Board) -> chess.Move:
+    for move in board.legal_moves:
+        return move
+
+    raise ValueError("fen has no legal moves.")
+
+
+def select_ai_move(fen: str, difficulty: str) -> str:
+    board = _board_from_fen(fen, "fen")
+    if board.is_game_over(claim_draw=True):
+        raise ValueError("fen is a game-over position.")
+
+    if not any(board.legal_moves):
+        raise ValueError("fen has no legal moves.")
+
+    preset = AI_DIFFICULTY_PRESETS[difficulty]
+
+    if MOCK_STOCKFISH:
+        return _first_legal_move(board).uci()
+
+    with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
+        try:
+            engine.configure({"Skill Level": preset["skill_level"]})
+        except chess.engine.EngineError:
+            pass
+
+        result = engine.play(board, chess.engine.Limit(depth=preset["depth"]))
+        if result.move is None:
+            raise ValueError("Stockfish did not return a legal move.")
+
+        return result.move.uci()
+
+
+def ai_move_response(req: AiMoveRequest) -> Dict[str, str]:
+    return {
+        "best_move": select_ai_move(req.fen, req.difficulty),
+        "difficulty": req.difficulty,
+    }
 
 
 def classify_score(score: Optional[int], turn: chess.Color) -> str:

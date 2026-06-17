@@ -30,6 +30,9 @@ public class GameModeManager : MonoBehaviour
     /// <summary>Match time per side in seconds. float.MaxValue = unlimited.</summary>
     public float TimerSeconds { get; private set; } = float.MaxValue;
 
+    /// <summary>Stockfish difficulty for VsAI games.</summary>
+    public string AiDifficulty { get; private set; } = AiOpponentController.DefaultDifficulty;
+
     [Header("Scene Names")]
     public string mainMenuSceneName = "MainMenu";
     private bool _isExitingToMenu;
@@ -57,6 +60,11 @@ public class GameModeManager : MonoBehaviour
             GameStateManager.Instance.InitBoard(TimerSeconds);
             ChessClock.Instance?.StartClock(TimerSeconds, true);
             ChessViewModeController.EnsureInScene()?.ConfigureMatchContext(isWhite: true, proxy: null);
+
+            if (IsVsAI)
+            {
+                AiOpponentController.EnsureInScene();
+            }
         }
     }
 
@@ -87,7 +95,10 @@ public class GameModeManager : MonoBehaviour
             _    => float.MaxValue   // "unlimited"
         };
 
-        Debug.Log($"[GameModeManager] Mode: {CurrentMode} | Timer: {TimerSeconds}s | Name: {LocalPlayerName}");
+        AiDifficulty = AiOpponentController.NormalizeDifficulty(
+            PlayerPrefs.GetString(AiOpponentController.DifficultyPrefKey, AiOpponentController.DefaultDifficulty));
+
+        Debug.Log($"[GameModeManager] Mode: {CurrentMode} | Timer: {TimerSeconds}s | Name: {LocalPlayerName} | AI: {AiDifficulty}");
     }
 
     /// <summary>Called by pause menu or game-over screen to go back to main menu.</summary>

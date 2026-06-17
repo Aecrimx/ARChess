@@ -69,4 +69,39 @@ public class ChessNotationExporterTests
         CollectionAssert.AreEqual(new List<string> { "e2e4" }, request.MovesUci);
         Assert.AreEqual(_gsm.ToFen(), request.FinalFen);
     }
+
+    [Test]
+    public void AiMoveParser_ParsesBlackPromotionPiece()
+    {
+        bool parsed = AiOpponentController.TryParseUciMove(
+            "b2a1q",
+            false,
+            out Vector2Int from,
+            out Vector2Int to,
+            out Piece promotion);
+
+        Assert.IsTrue(parsed);
+        Assert.AreEqual(new Vector2Int(1, 1), from);
+        Assert.AreEqual(new Vector2Int(0, 0), to);
+        Assert.AreEqual(Piece.BlackQueen, promotion);
+    }
+
+    [Test]
+    public void AiParsedMove_CanBeAppliedThroughGameStateManager()
+    {
+        Assert.IsTrue(_gsm.TryApplyMove(new Vector2Int(1, 4), new Vector2Int(3, 4)));
+        Assert.IsFalse(_gsm.IsWhiteTurn);
+
+        bool parsed = AiOpponentController.TryParseUciMove(
+            "e7e5",
+            false,
+            out Vector2Int from,
+            out Vector2Int to,
+            out Piece promotion);
+
+        Assert.IsTrue(parsed);
+        Assert.IsTrue(_gsm.TryApplyMove(from, to, promotion));
+        Assert.IsTrue(_gsm.IsWhiteTurn);
+        Assert.AreEqual(Piece.BlackPawn, _gsm.Board[4, 4]);
+    }
 }

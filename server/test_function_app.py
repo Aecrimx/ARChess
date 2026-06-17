@@ -54,6 +54,43 @@ def test_analyze_move_function_route_returns_feedback():
     assert "[mock]" in _json_body(response)["feedback"]
 
 
+def test_ai_move_function_route_returns_best_move():
+    payload = {
+        "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        "difficulty": "normal",
+    }
+
+    response = function_app.ai_move(_request("POST", "/ai-move", payload))
+    body = _json_body(response)
+
+    assert response.status_code == 200
+    assert body["difficulty"] == "normal"
+    assert body["best_move"]
+
+
+def test_ai_move_function_route_rejects_invalid_fen():
+    payload = {
+        "fen": "not a fen",
+        "difficulty": "easy",
+    }
+
+    response = function_app.ai_move(_request("POST", "/ai-move", payload))
+
+    assert response.status_code == 400
+    assert "fen is not a valid FEN" in _json_body(response)["error"]
+
+
+def test_ai_move_function_route_rejects_invalid_difficulty():
+    payload = {
+        "fen": ai_service.chess.STARTING_FEN,
+        "difficulty": "impossible",
+    }
+
+    response = function_app.ai_move(_request("POST", "/ai-move", payload))
+
+    assert response.status_code == 422
+
+
 def test_review_game_function_route_returns_review_from_uci():
     payload = {
         "player_color": "white",
