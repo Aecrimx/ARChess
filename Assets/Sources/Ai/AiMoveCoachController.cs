@@ -126,7 +126,8 @@ public sealed class AiMoveCoachController : MonoBehaviour
             FenAfter = fenAfter,
             MovePlayed = move.ToUci(),
             PlayerColor = "white",
-            MoveNumber = Mathf.Max(1, (gsm.MoveHistory.Count + 1) / 2)
+            MoveNumber = Mathf.Max(1, (gsm.MoveHistory.Count + 1) / 2),
+            CoachPersonality = GetCoachPersonality()
         };
 
         StartCoroutine(RequestFeedback(requestVersion, payload));
@@ -180,4 +181,10 @@ public sealed class AiMoveCoachController : MonoBehaviour
     }
 
     private static bool IsWhitePiece(Piece piece) => (int)piece > 0;
+
+    private static string GetCoachPersonality()
+    {
+        return AiCoachClient.NormalizeCoachPersonality(
+            PlayerPrefs.GetString(AiCoachClient.CoachPersonalityPrefKey, AiCoachClient.DefaultCoachPersonality));
+    }
 }

@@ -36,6 +36,14 @@ def _env_int(name: str, default_value: int) -> int:
         return default_value
 
 
+COACH_PERSONALITIES = {"pleasant_coach", "cocky"}
+
+
+def normalize_coach_personality(value: Optional[str]) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in COACH_PERSONALITIES else "cocky"
+
+
 MOCK_EXTERNALS = _env_flag("MOCK_EXTERNALS")
 MOCK_STOCKFISH = _env_flag("MOCK_STOCKFISH") or MOCK_EXTERNALS
 MOCK_ANALYZE_RESPONSE = os.getenv("MOCK_ANALYZE_RESPONSE", DEFAULT_ANALYZE_RESPONSE)
@@ -44,7 +52,7 @@ MOCK_REVIEW_RESPONSE = os.getenv("MOCK_REVIEW_RESPONSE", DEFAULT_REVIEW_RESPONSE
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/usr/bin/stockfish")
 STOCKFISH_DEPTH = _env_int("STOCKFISH_DEPTH", 15)
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-COACH_PERSONALITY = os.getenv("COACH_PERSONALITY", "cocky")
+COACH_PERSONALITY = normalize_coach_personality(os.getenv("COACH_PERSONALITY", "cocky"))
 
 AI_DIFFICULTY_PRESETS = {
     "easy": {"depth": 3, "skill_level": 3},
@@ -61,6 +69,22 @@ class MoveRequest(BaseModel):
     move_played: str
     player_color: str
     move_number: int
+    coach_personality: Optional[str] = None
+
+    @validator("coach_personality", pre=True, always=True)
+    def validate_coach_personality(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return None
+
+        if normalized not in COACH_PERSONALITIES:
+            allowed = ", ".join(sorted(COACH_PERSONALITIES))
+            raise ValueError(f"coach_personality must be one of: {allowed}")
+
+        return normalized
 
 
 class GameReviewRequest(BaseModel):
@@ -307,7 +331,8 @@ def analyze_move_response(req: MoveRequest) -> Dict[str, str]:
     _validate_fen(req.fen_before, "fen_before")
     _validate_fen(req.fen_after, "fen_after")
 
-    if COACH_PERSONALITY == "pleasant_coach":
+    coach_personality = req.coach_personality or COACH_PERSONALITY
+    if coach_personality == "pleasant_coach":
         system = """You are a chess coach giving real-time feedback to a beginner/intermediate player.
 Be concise (2-3 sentences max). Be encouraging but honest.
 Use the tools to evaluate positions, then explain in plain English what happened."""

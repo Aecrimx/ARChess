@@ -46,12 +46,28 @@ def test_analyze_move_function_route_returns_feedback():
         "move_played": "e7e5",
         "player_color": "black",
         "move_number": 1,
+        "coach_personality": "pleasant_coach",
     }
 
     response = function_app.analyze_move(_request("POST", "/analyze-move", payload))
 
     assert response.status_code == 200
     assert "[mock]" in _json_body(response)["feedback"]
+
+
+def test_analyze_move_function_route_rejects_invalid_coach_personality():
+    payload = {
+        "fen_before": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "fen_after": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "move_played": "e7e5",
+        "player_color": "black",
+        "move_number": 1,
+        "coach_personality": "mean",
+    }
+
+    response = function_app.analyze_move(_request("POST", "/analyze-move", payload))
+
+    assert response.status_code == 422
 
 
 def test_ai_move_function_route_returns_best_move():

@@ -72,6 +72,8 @@ public class MainMenuController : MonoBehaviour
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private InputField _nameField;
+    private string _selectedCoachPersonality = AiCoachClient.DefaultCoachPersonality;
+    private readonly List<Button> _coachPersonalityButtons = new List<Button>();
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
@@ -79,6 +81,8 @@ public class MainMenuController : MonoBehaviour
         _selectedTimerPreset = PlayerPrefs.GetString("TimerPreset", "unlimited");
         _selectedAiDifficulty = AiOpponentController.NormalizeDifficulty(
             PlayerPrefs.GetString(AiOpponentController.DifficultyPrefKey, AiOpponentController.DefaultDifficulty));
+        _selectedCoachPersonality = AiCoachClient.NormalizeCoachPersonality(
+            PlayerPrefs.GetString(AiCoachClient.CoachPersonalityPrefKey, AiCoachClient.DefaultCoachPersonality));
         SetBackground();
         BuildUI();
         ShowPanel(_mainPanel);
@@ -122,7 +126,7 @@ public class MainMenuController : MonoBehaviour
         // Version label (always visible)
         MakeText("Version", root,
                  new Vector2(0f, 0f), new Vector2(1f, 0.06f),
-                 "v0.3", 30, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+                 "v1.0", 30, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
     }
 
     // ── Main panel ────────────────────────────────────────────────────────────
@@ -407,6 +411,13 @@ public class MainMenuController : MonoBehaviour
         _nameField.characterLimit  = 20;
         _nameField.text            = PlayerPrefs.GetString("PlayerName", "");
 
+        MakeText("CoachPersonalityLabel", t,
+                 new Vector2(0.1f, 0.43f), new Vector2(0.9f, 0.51f),
+                 "Coach Personality", 45, FontStyle.Normal, titleColor, TextAnchor.MiddleCenter);
+
+        BuildCoachPersonalityButtons(t, 0.33f, 0.43f);
+        RefreshCoachPersonalitySelectionUi();
+
         MakeButton("BtnBack", t,
                    new Vector2(0.1f, 0.15f), new Vector2(0.9f, 0.27f),
                    "Back").onClick.AddListener(OnSettingsBack);
@@ -493,6 +504,7 @@ public class MainMenuController : MonoBehaviour
         string name = _nameField != null ? _nameField.text.Trim() : "";
         if (string.IsNullOrEmpty(name)) name = "Player";
         PlayerPrefs.SetString("PlayerName", name);
+        PlayerPrefs.SetString(AiCoachClient.CoachPersonalityPrefKey, _selectedCoachPersonality);
         PlayerPrefs.Save();
         ShowPanel(_mainPanel);
     }
@@ -710,6 +722,55 @@ public class MainMenuController : MonoBehaviour
         if (_aiDifficultyRoot != null)
         {
             _aiDifficultyRoot.SetActive(visible);
+        }
+    }
+
+    private void BuildCoachPersonalityButtons(Transform parent, float yMin, float yMax)
+    {
+        string[] labels = { "Pleasant", "Cocky" };
+        string[] values =
+        {
+            AiCoachClient.PleasantCoachPersonality,
+            AiCoachClient.CockyCoachPersonality
+        };
+        float btnW = 1f / labels.Length;
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            int idx = i;
+            var personalityButton = MakeButton($"BtnCoachPersonality{labels[i]}", parent,
+                       new Vector2(i * btnW + 0.1f, yMin),
+                       new Vector2((i + 1) * btnW - 0.1f, yMax),
+                       labels[i]);
+            _coachPersonalityButtons.Add(personalityButton);
+            personalityButton.onClick.AddListener(() =>
+            {
+                _selectedCoachPersonality = values[idx];
+                RefreshCoachPersonalitySelectionUi();
+                Debug.Log($"[MainMenu] Coach personality: {_selectedCoachPersonality}");
+            });
+        }
+    }
+
+    private void RefreshCoachPersonalitySelectionUi()
+    {
+        string[] values =
+        {
+            AiCoachClient.PleasantCoachPersonality,
+            AiCoachClient.CockyCoachPersonality
+        };
+
+        for (int i = 0; i < _coachPersonalityButtons.Count; i++)
+        {
+            var button = _coachPersonalityButtons[i];
+            if (button == null) continue;
+
+            var image = button.GetComponent<Image>();
+            if (image == null) continue;
+
+            image.color = values[i % values.Length] == _selectedCoachPersonality
+                ? buttonHoverColor
+                : buttonColor;
         }
     }
 

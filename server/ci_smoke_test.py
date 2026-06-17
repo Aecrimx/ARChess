@@ -86,6 +86,7 @@ def main() -> int:
             "move_played": "e7e5",
             "player_color": "black",
             "move_number": 1,
+            "coach_personality": "pleasant_coach",
         }
         analyze_data = _post_json(base_url, "/analyze-move", analyze_payload)
         assert "feedback" in analyze_data

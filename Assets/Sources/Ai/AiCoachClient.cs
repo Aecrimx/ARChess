@@ -10,6 +10,10 @@ public sealed class AiCoachClient : MonoBehaviour
 {
     public const string BaseUrlPrefKey = "AiCoachBaseUrl";
     public const string FunctionKeyPrefKey = "AiCoachFunctionKey";
+    public const string CoachPersonalityPrefKey = "CoachPersonality";
+    public const string DefaultCoachPersonality = "cocky";
+    public const string PleasantCoachPersonality = "pleasant_coach";
+    public const string CockyCoachPersonality = "cocky";
     public const string DefaultBaseUrl = "https://archess-ai-func-12345.redforest-3cb705dd.francecentral.azurecontainerapps.io";
     public const string DefaultFunctionKey = "";
 
@@ -155,6 +159,17 @@ public sealed class AiCoachClient : MonoBehaviour
 
         return $"AI coach request failed: {request.error}";
     }
+
+    public static string NormalizeCoachPersonality(string personality)
+    {
+        string normalized = string.IsNullOrWhiteSpace(personality)
+            ? DefaultCoachPersonality
+            : personality.Trim().ToLowerInvariant();
+
+        return normalized == PleasantCoachPersonality || normalized == CockyCoachPersonality
+            ? normalized
+            : DefaultCoachPersonality;
+    }
 }
 
 [Serializable]
@@ -165,6 +180,7 @@ public sealed class AiAnalyzeMoveRequest
     [JsonProperty("move_played")] public string MovePlayed;
     [JsonProperty("player_color")] public string PlayerColor;
     [JsonProperty("move_number")] public int MoveNumber;
+    [JsonProperty("coach_personality")] public string CoachPersonality;
 }
 
 [Serializable]

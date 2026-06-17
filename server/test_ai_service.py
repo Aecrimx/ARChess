@@ -8,6 +8,31 @@ os.environ.setdefault("MOCK_STOCKFISH", "1")
 import ai_service
 
 
+def test_move_request_normalizes_coach_personality():
+    payload = ai_service.MoveRequest(
+        fen_before=ai_service.chess.STARTING_FEN,
+        fen_after=ai_service.chess.STARTING_FEN,
+        move_played="e2e4",
+        player_color="white",
+        move_number=1,
+        coach_personality=" Pleasant_Coach ",
+    )
+
+    assert payload.coach_personality == "pleasant_coach"
+
+
+def test_move_request_rejects_invalid_coach_personality():
+    with pytest.raises(ValueError, match="coach_personality must be one of"):
+        ai_service.MoveRequest(
+            fen_before=ai_service.chess.STARTING_FEN,
+            fen_after=ai_service.chess.STARTING_FEN,
+            move_played="e2e4",
+            player_color="white",
+            move_number=1,
+            coach_personality="mean",
+        )
+
+
 def test_ai_move_response_returns_legal_mock_move():
     payload = ai_service.AiMoveRequest(
         fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
