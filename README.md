@@ -110,9 +110,11 @@ The `server/Dockerfile` uses the Azure Functions Python 3.11 base image and inst
 ```text
 GEMINI_API_KEY          Required for real Gemini calls
 GEMINI_MODEL            Defaults to gemini-3.1-flash-lite
+GEMINI_AFC_MAX_REMOTE_CALLS Defaults to 4; SDK default is 10
 STOCKFISH_PATH          Defaults to /usr/bin/stockfish in code
 STOCKFISH_DEPTH         Defaults to 15
 COACH_PERSONALITY       cocky or pleasant_coach
+REVIEW_USE_TOOLS        0 disables Stockfish tools for game review; default 1 keeps reviews tool-enabled
 MOCK_EXTERNALS          1 skips real Gemini and Stockfish in tests
 MOCK_STOCKFISH          1 mocks only Stockfish
 MOCK_ANALYZE_RESPONSE   Optional mocked analyze text

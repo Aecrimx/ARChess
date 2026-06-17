@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
@@ -20,9 +21,19 @@ DEFAULT_REVIEW_RESPONSE = (
     "[mock] Game review completed successfully and the server returned a deterministic response."
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_flag_default(name: str, default_value: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default_value
+
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default_value: int) -> int:
@@ -52,7 +63,9 @@ MOCK_REVIEW_RESPONSE = os.getenv("MOCK_REVIEW_RESPONSE", DEFAULT_REVIEW_RESPONSE
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/usr/bin/stockfish")
 STOCKFISH_DEPTH = _env_int("STOCKFISH_DEPTH", 15)
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+GEMINI_AFC_MAX_REMOTE_CALLS = max(1, _env_int("GEMINI_AFC_MAX_REMOTE_CALLS", 10))
 COACH_PERSONALITY = normalize_coach_personality(os.getenv("COACH_PERSONALITY", "cocky"))
+REVIEW_USE_TOOLS = _env_flag_default("REVIEW_USE_TOOLS", True)
 
 AI_DIFFICULTY_PRESETS = {
     "easy": {"depth": 3, "skill_level": 3},
@@ -131,6 +144,8 @@ def health_payload() -> Dict[str, Any]:
         "stockfish_path": STOCKFISH_PATH,
         "stockfish_depth": STOCKFISH_DEPTH,
         "model": GEMINI_MODEL,
+        "afc_max_remote_calls": GEMINI_AFC_MAX_REMOTE_CALLS,
+        "review_use_tools": REVIEW_USE_TOOLS,
     }
 
 
@@ -310,21 +325,96 @@ def call_gemini_with_tools(system_prompt: str, user_message: str) -> str:
         return MOCK_ANALYZE_RESPONSE
 
     if types is None:
-        raise RuntimeError("google-genai is not installed. Install requirements.txt or enable MOCK_EXTERNALS.")
+        return _fallback_model_response(
+            "google-genai is not installed. Install requirements.txt or enable MOCK_EXTERNALS."
+        )
 
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         tools=[evaluate_position, get_best_move],
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+            maximum_remote_calls=GEMINI_AFC_MAX_REMOTE_CALLS,
+        ),
         temperature=0.2,
     )
 
-    chat = _get_genai_client().chats.create(
+    try:
+        chat = _get_genai_client().chats.create(
+            model=GEMINI_MODEL,
+            config=config,
+        )
+
+        response = chat.send_message(user_message)
+        text = _extract_response_text(response)
+        if text:
+            return text
+
+        logger.warning("Gemini returned no text for a tool-enabled request; retrying without tools.")
+        retry_message = (
+            f"{user_message}\n\n"
+            "The previous tool-enabled attempt returned no text. "
+            "Give the player a plain text coaching response without calling tools."
+        )
+    except Exception as exc:
+        logger.warning("Gemini tool-enabled request failed; retrying without tools: %s", exc)
+        retry_message = (
+            f"{user_message}\n\n"
+            "The engine/tool-assisted attempt failed on the server. "
+            "Give the best plain text coaching response you can from the supplied chess notation."
+        )
+
+    return call_gemini_text_with_fallback(system_prompt, retry_message)
+
+
+def call_gemini_text_with_fallback(system_prompt: str, user_message: str) -> str:
+    try:
+        return call_gemini_text(system_prompt, user_message)
+    except Exception as exc:
+        logger.exception("Gemini plain-text request failed.")
+        return _fallback_model_response(str(exc))
+
+
+def call_gemini_text(system_prompt: str, user_message: str) -> str:
+    if MOCK_EXTERNALS:
+        normalized_message = user_message.lower()
+        if "review this game" in normalized_message or "pgn:" in normalized_message:
+            return MOCK_REVIEW_RESPONSE
+        return MOCK_ANALYZE_RESPONSE
+
+    if types is None:
+        raise RuntimeError("google-genai is not installed. Install requirements.txt or enable MOCK_EXTERNALS.")
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=0.2,
+    )
+    response = _get_genai_client().models.generate_content(
         model=GEMINI_MODEL,
+        contents=user_message,
         config=config,
     )
+    text = _extract_response_text(response)
+    if not text:
+        raise RuntimeError("Gemini returned an empty response.")
 
-    response = chat.send_message(user_message)
-    return response.text or "Analysis unavailable."
+    return text
+
+
+def _extract_response_text(response: Any) -> str:
+    try:
+        text = getattr(response, "text", None)
+    except Exception:
+        return ""
+
+    return text.strip() if isinstance(text, str) else ""
+
+
+def _fallback_model_response(reason: str) -> str:
+    logger.warning("Returning fallback AI coach response: %s", reason)
+    return (
+        "The AI coach received the game data, but the model-backed analysis could not be completed right now. "
+        "Please retry in a moment."
+    )
 
 
 def analyze_move_response(req: MoveRequest) -> Dict[str, str]:
@@ -374,15 +464,26 @@ def _build_review_context(req: GameReviewRequest) -> str:
 
 
 def review_game_response(req: GameReviewRequest) -> Dict[str, str]:
-    system = """You are a chess coach doing a post-game review.
+    if REVIEW_USE_TOOLS:
+        logger.info("Review game is using tool-enabled Gemini review.")
+        system = """You are a chess coach doing a post-game review.
 Identify the 2-3 most critical moments (blunders, missed tactics, good moves).
 Be educational and constructive. Use the tools to verify your analysis."""
+    else:
+        logger.info("Review game is using plain text Gemini review.")
+        system = """You are a chess coach doing a post-game review.
+Identify the 2-3 most critical moments from the supplied move list and final position.
+Be educational and constructive. Do not claim exact engine evaluations or call tools."""
 
     review_context = _build_review_context(req)
     user_msg = f"""Review this game for the {req.player_color} player.
 {review_context}
 
-Find the turning points and key mistakes. Use evaluate_position to check specific positions if needed."""
+Find the turning points and key mistakes."""
 
-    review = call_gemini_with_tools(system, user_msg)
+    review = (
+        call_gemini_with_tools(system, user_msg)
+        if REVIEW_USE_TOOLS
+        else call_gemini_text_with_fallback(system, user_msg)
+    )
     return {"review": review}

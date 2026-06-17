@@ -124,6 +124,91 @@ def test_review_game_accepts_uci_payload_in_mock_mode():
     assert "[mock]" in response["review"]
 
 
+def test_review_game_uses_tool_enabled_call_by_default(monkeypatch):
+    calls = {"text": 0, "tools": 0}
+
+    def fake_text(_system, _message):
+        calls["text"] += 1
+        raise AssertionError("review should use tool-enabled Gemini by default")
+
+    def fake_tools(_system, _message):
+        calls["tools"] += 1
+        return "Tool-enabled review."
+
+    monkeypatch.setattr(ai_service, "REVIEW_USE_TOOLS", True)
+    monkeypatch.setattr(ai_service, "call_gemini_text_with_fallback", fake_text)
+    monkeypatch.setattr(ai_service, "call_gemini_with_tools", fake_tools)
+
+    payload = ai_service.GameReviewRequest(
+        player_color="white",
+        moves_uci=["e2e4"],
+    )
+
+    response = ai_service.review_game_response(payload)
+
+    assert response["review"] == "Tool-enabled review."
+    assert calls == {"text": 0, "tools": 1}
+
+
+def test_call_gemini_with_tools_retries_plain_text_when_tool_response_is_empty(monkeypatch):
+    class FakeTypes:
+        class GenerateContentConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+    class EmptyToolChat:
+        def send_message(self, _message):
+            return type("Response", (), {"text": ""})()
+
+    class FakeChats:
+        def create(self, **_kwargs):
+            return EmptyToolChat()
+
+    class FakeModels:
+        def generate_content(self, **_kwargs):
+            return type("Response", (), {"text": "Plain retry review."})()
+
+    class FakeClient:
+        chats = FakeChats()
+        models = FakeModels()
+
+    monkeypatch.setattr(ai_service, "MOCK_EXTERNALS", False)
+    monkeypatch.setattr(ai_service, "types", FakeTypes)
+    monkeypatch.setattr(ai_service, "_get_genai_client", lambda: FakeClient())
+
+    response = ai_service.call_gemini_with_tools("system", "Review this game for white.")
+
+    assert response == "Plain retry review."
+
+
+def test_call_gemini_with_tools_returns_fallback_when_model_retry_fails(monkeypatch):
+    class FakeTypes:
+        class GenerateContentConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+    class BrokenChats:
+        def create(self, **_kwargs):
+            raise RuntimeError("stockfish missing")
+
+    class BrokenModels:
+        def generate_content(self, **_kwargs):
+            raise RuntimeError("gemini empty")
+
+    class FakeClient:
+        chats = BrokenChats()
+        models = BrokenModels()
+
+    monkeypatch.setattr(ai_service, "MOCK_EXTERNALS", False)
+    monkeypatch.setattr(ai_service, "types", FakeTypes)
+    monkeypatch.setattr(ai_service, "_get_genai_client", lambda: FakeClient())
+
+    response = ai_service.call_gemini_with_tools("system", "Review this game for white.")
+
+    assert "received the game data" in response
+    assert "Analysis unavailable" not in response
+
+
 def test_review_game_rejects_invalid_final_fen():
     payload = ai_service.GameReviewRequest(
         player_color="white",
