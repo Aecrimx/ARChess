@@ -136,6 +136,23 @@ To build the game APK, use Unity 6 and install the required packages provided in
 > **AR Device Compatibility**
 > To use the AR features, please ensure your phone supports ARCore by checking the [official Google Play Services for AR supported devices list](https://developers.google.com/ar/devices).
 
+## Testing & CI/CD Pipeline
+
+We use GitHub Actions workflows to verify code integrity and to generate Android packages if all tests are successful.
+
+### Automated Tests
+1. **Unity Game Client** (`unity-ci.yml`)
+   - Uses GameCI to run **EditMode** and **PlayMode** tests for validating the client logic and components.
+   - On successful test runs for the `main` branch, the pipeline automatically builds the Android `.apk` file and uploads it as a build artifact.
+
+2. **Python Server** (`server-ci.yml`)
+   - Automatically sets up the Python environment and installs dependencies.
+   - Runs `ci_smoke_test.py` which mocks out external dependencies (Stockfish & Gemini) to test the server's HTTP endpoints (`/health`, `/analyze-move`, and `/review-game`) and ensures the API correctly handles payload parsing and responses.
+   - `test_server_local.py` is also available for integration testing the real AI responses on a local machine.
+
+### Formal Verification
+Our verification relies on rigid structural architectures and strong typing rather than dedicated mathematical formal verification tools. By isolating the *Core Game State* from the *Network Layer* and validating incoming network commands (`TryApplyMove()`), we ensure that invalid moves and state transitions are structurally blocked. The server strictly establishes formal verification of payload boundaries through Python type hints and predefined FastAPI Pydantic models.
+
 ## Resources Used
 
 -  **[Mirror](https://mirror-networking.com/)** — for LAN multiplayer
