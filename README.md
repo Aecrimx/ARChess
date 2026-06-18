@@ -9,6 +9,10 @@ ARChess is a Unity 6 mobile chess project with four play flows:
 
 The Unity client owns the board state, input, rendering, timers, LAN flow, and HUD. The Python service owns Stockfish-backed AI moves plus Gemini-powered coaching and post-game review.
 
+> [!WARNING]
+> **AR Device Compatibility**
+> To use the AR features, please ensure your phone supports ARCore by checking the [official Google Play Services for AR supported devices list](https://developers.google.com/ar/devices).
+
 ## Current Feature Set
 
 - Full local rules through `GameStateManager`: legal move generation, check/checkmate, stalemate, castling, en passant, promotion, threefold repetition, the 50-move rule, captured pieces, and timed game results.
@@ -35,8 +39,6 @@ server                        Current Python AI service, Azure Functions entry p
 local_server                  Older local FastAPI prototype kept for reference
 docs                          Architecture, class, network, scene, and color documentation
 ```
-
-The binary report under `docs/Raport 1 MDS-3.pdf` is stored as a Git LFS object. Fetch LFS objects if you need the rendered PDF.
 
 ## Unity Setup
 
@@ -161,3 +163,9 @@ Unity checks are defined in `.github/workflows/unity-ci.yml`:
 - Mirror for LAN networking and discovery.
 - Python 3.11 service stack with FastAPI, Azure Functions, python-chess, Stockfish, and Google Gemini SDK.
 - GameCI for Unity tests/builds and GitHub Actions for server smoke tests.
+
+## Resources Used
+
+-  **[Mirror](https://mirror-networking.com/)** — for LAN multiplayer
+-  **[MagicaVoxel](https://ephtracy.github.io/)** — for 3D voxel modelling
+-  **[ARCore](https://developers.google.com/ar)** — for powering the AR Mode
